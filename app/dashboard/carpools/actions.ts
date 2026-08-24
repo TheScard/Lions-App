@@ -116,7 +116,8 @@ export async function deleteCarpool(carpoolId: string, redirectMatchId: string |
     .maybeSingle();
 
   const isOwner = carpool?.driver_id === session.memberId;
-  const isPrivileged = session.role === "admin" || session.role === "vorstand";
+  const isPrivileged =
+    session.role === "admin" || session.role === "vorstand" || session.role === "coach";
 
   if (carpool && (isOwner || isPrivileged)) {
     await supabase.from("carpools").delete().eq("id", carpoolId);

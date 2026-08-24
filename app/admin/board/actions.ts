@@ -62,7 +62,7 @@ async function uploadPhotoIfPresent(
 }
 
 export async function createBoardMember(formData: FormData): Promise<BoardMemberFormState> {
-  await requireRole(["admin", "vorstand"]);
+  await requireRole(["admin", "vorstand", "coach"]);
 
   const parsed = parseBoardMemberForm(formData);
   if ("error" in parsed) return { error: parsed.error };
@@ -94,7 +94,7 @@ export async function updateBoardMember(
   id: string,
   formData: FormData
 ): Promise<BoardMemberFormState> {
-  await requireRole(["admin", "vorstand"]);
+  await requireRole(["admin", "vorstand", "coach"]);
 
   const parsed = parseBoardMemberForm(formData);
   if ("error" in parsed) return { error: parsed.error };
@@ -133,7 +133,7 @@ export async function updateBoardMember(
 }
 
 export async function deleteBoardMember(id: string): Promise<void> {
-  await requireRole(["admin", "vorstand"]);
+  await requireRole(["admin", "vorstand", "coach"]);
   const supabase = await createServerSupabaseClient();
 
   const { data: existing } = await supabase
@@ -153,7 +153,7 @@ export async function deleteBoardMember(id: string): Promise<void> {
 }
 
 async function swapSortOrder(id: string, direction: "up" | "down"): Promise<void> {
-  await requireRole(["admin", "vorstand"]);
+  await requireRole(["admin", "vorstand", "coach"]);
   const supabase = await createServerSupabaseClient();
 
   const { data: all } = await supabase

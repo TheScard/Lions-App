@@ -8,7 +8,8 @@ const SIGNED_URL_EXPIRY_SECONDS = 60 * 60; // 1 Stunde
 export default async function GalleryPage() {
   const session = await requireSession();
   const supabase = await createServerSupabaseClient();
-  const canManage = session.role === "admin" || session.role === "vorstand";
+  const canManage =
+    session.role === "admin" || session.role === "vorstand" || session.role === "coach";
 
   const { data: photosData } = await supabase
     .from("gallery_photos")

@@ -42,7 +42,7 @@ export async function createEvent(
   _prevState: EventFormState,
   formData: FormData
 ): Promise<EventFormState> {
-  await requireRole(["admin", "vorstand"]);
+  await requireRole(["admin", "vorstand", "coach"]);
 
   const parsed = parseEventForm(formData);
   if ("error" in parsed) return { error: parsed.error };
@@ -62,7 +62,7 @@ export async function updateEvent(
   _prevState: EventFormState,
   formData: FormData
 ): Promise<EventFormState> {
-  await requireRole(["admin", "vorstand"]);
+  await requireRole(["admin", "vorstand", "coach"]);
 
   const parsed = parseEventForm(formData);
   if ("error" in parsed) return { error: parsed.error };
@@ -78,7 +78,7 @@ export async function updateEvent(
 }
 
 export async function deleteEvent(id: string): Promise<void> {
-  await requireRole(["admin", "vorstand"]);
+  await requireRole(["admin", "vorstand", "coach"]);
   const supabase = await createServerSupabaseClient();
   await supabase.from("events").delete().eq("id", id);
 

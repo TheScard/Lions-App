@@ -4,7 +4,7 @@ import { requireRole } from "@/lib/auth/guards";
 export default async function AdminLayout({ children }: { children: React.ReactNode }) {
   // Basis-Zugriff: admin + vorstand. Einzelne Unterseiten (z.B.
   // /admin/members) pruefen bei Bedarf zusaetzlich strenger.
-  await requireRole(["admin", "vorstand"]);
+  await requireRole(["admin", "vorstand", "coach"]);
 
   return (
     <div className="min-h-dvh bg-bg">

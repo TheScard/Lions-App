@@ -6,7 +6,7 @@ import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { hashPin, generatePin } from "@/lib/auth/pin";
 import type { MemberRole, Team } from "@/types/database";
 
-const VALID_ROLES: MemberRole[] = ["member", "vorstand", "admin"];
+const VALID_ROLES: MemberRole[] = ["member", "vorstand", "admin", "coach"];
 const VALID_TEAMS: Team[] = ["herren", "u16"];
 
 function isValidRole(value: string): value is MemberRole {
@@ -27,7 +27,7 @@ export async function createMember(
   _prevState: CreateMemberState,
   formData: FormData
 ): Promise<CreateMemberState> {
-  await requireRole(["admin"]);
+  await requireRole(["admin", "coach", "vorstand"]);
 
   const name = String(formData.get("name") ?? "").trim();
   const role = String(formData.get("role") ?? "member").trim();
@@ -87,7 +87,7 @@ export async function resetPin(
 ): Promise<ResetPinState> {
   void prevState;
   void formData;
-  await requireRole(["admin"]);
+  await requireRole(["admin", "coach", "vorstand"]);
 
   const pin = generatePin();
   const pinHash = await hashPin(pin);
@@ -105,7 +105,7 @@ export async function resetPin(
 }
 
 export async function changeRole(memberId: string, formData: FormData): Promise<void> {
-  await requireRole(["admin"]);
+  await requireRole(["admin", "coach", "vorstand"]);
 
   const newRole = String(formData.get("role") ?? "").trim();
   if (!isValidRole(newRole)) {
@@ -142,7 +142,7 @@ export async function changeRole(memberId: string, formData: FormData): Promise<
 }
 
 export async function changeTeam(memberId: string, formData: FormData): Promise<void> {
-  await requireRole(["admin"]);
+  await requireRole(["admin", "coach", "vorstand"]);
 
   const rawTeam = String(formData.get("team") ?? "").trim();
   const newTeam: Team | null = rawTeam === "" ? null : (rawTeam as Team);
@@ -160,7 +160,7 @@ export async function changeTeam(memberId: string, formData: FormData): Promise<
 }
 
 export async function deleteMember(memberId: string): Promise<void> {
-  const session = await requireRole(["admin"]);
+  const session = await requireRole(["admin", "coach", "vorstand"]);
 
   // Verhindert versehentliches Selbst-Aussperren (eigene Session verweist
   // sonst auf ein geloeschtes Mitglied). Nicht explizit gefordert, aber

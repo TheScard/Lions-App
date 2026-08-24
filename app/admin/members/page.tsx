@@ -19,9 +19,7 @@ export default async function AdminMembersPage({
 }: {
   searchParams: { error?: string };
 }) {
-  // Mitgliederverwaltung ist sicherheitskritisch (Logins/PINs/Rollen) und
-  // bewusst strenger als der Rest von /admin: nur admin, kein vorstand.
-  await requireRole(["admin"]);
+  await requireRole(["admin", "coach", "vorstand"]);
 
   const supabase = await createServerSupabaseClient();
   const { data: members } = await supabase
@@ -73,6 +71,7 @@ export default async function AdminMembersPage({
                 >
                   <option value="member">Mitglied</option>
                   <option value="vorstand">Vorstand</option>
+                  <option value="coach">Coach</option>
                   <option value="admin">Admin</option>
                 </select>
                 <button type="submit" className="text-sm font-medium text-primary hover:underline">

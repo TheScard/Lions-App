@@ -17,7 +17,7 @@ const MAX_UPLOAD_BYTES = 5 * 1024 * 1024; // 5 MB Sicherheitsnetz (nach Client-K
  * Frontend ueberhaupt sichtbar war (requireRole leitet sonst um).
  */
 export async function uploadGalleryPhoto(formData: FormData): Promise<UploadResult> {
-  const session = await requireRole(["admin", "vorstand"]);
+  const session = await requireRole(["admin", "vorstand", "coach"]);
 
   const file = formData.get("file");
   const caption = String(formData.get("caption") ?? "").trim();
@@ -56,7 +56,7 @@ export async function uploadGalleryPhoto(formData: FormData): Promise<UploadResu
 }
 
 export async function deleteGalleryPhoto(photoId: string): Promise<void> {
-  await requireRole(["admin", "vorstand"]);
+  await requireRole(["admin", "vorstand", "coach"]);
   const supabase = await createServerSupabaseClient();
 
   const { data: photo } = await supabase

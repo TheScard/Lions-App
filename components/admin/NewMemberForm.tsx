@@ -70,6 +70,7 @@ export function NewMemberForm() {
         >
           <option value="member">Mitglied</option>
           <option value="vorstand">Vorstand</option>
+          <option value="coach">Coach</option>
           <option value="admin">Admin</option>
         </select>
       </div>

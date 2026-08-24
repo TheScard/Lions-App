@@ -5,7 +5,7 @@ import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { formatDateTime } from "@/lib/format";
 
 export default async function TrainingRsvpsPage({ params }: { params: { id: string } }) {
-  await requireRole(["admin", "vorstand"]);
+  await requireRole(["admin", "vorstand", "coach"]);
 
   const supabase = await createServerSupabaseClient();
   const { data: training } = await supabase

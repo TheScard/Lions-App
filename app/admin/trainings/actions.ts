@@ -51,7 +51,7 @@ export async function createTraining(
   _prevState: TrainingFormState,
   formData: FormData
 ): Promise<TrainingFormState> {
-  await requireRole(["admin", "vorstand"]);
+  await requireRole(["admin", "vorstand", "coach"]);
 
   const parsed = parseTrainingBaseForm(formData);
   if ("error" in parsed) return { error: parsed.error };
@@ -106,7 +106,7 @@ export async function updateTraining(
   _prevState: TrainingFormState,
   formData: FormData
 ): Promise<TrainingFormState> {
-  await requireRole(["admin", "vorstand"]);
+  await requireRole(["admin", "vorstand", "coach"]);
 
   const parsed = parseTrainingBaseForm(formData);
   if ("error" in parsed) return { error: parsed.error };
@@ -126,7 +126,7 @@ export async function updateTraining(
 }
 
 export async function deleteTraining(id: string): Promise<void> {
-  await requireRole(["admin", "vorstand"]);
+  await requireRole(["admin", "vorstand", "coach"]);
   const supabase = await createServerSupabaseClient();
   await supabase.from("trainings").delete().eq("id", id);
 
@@ -138,7 +138,7 @@ export async function deleteTraining(id: string): Promise<void> {
 }
 
 export async function deleteTrainingSeries(seriesId: string): Promise<void> {
-  await requireRole(["admin", "vorstand"]);
+  await requireRole(["admin", "vorstand", "coach"]);
   const supabase = await createServerSupabaseClient();
   await supabase.from("trainings").delete().eq("series_id", seriesId);
 

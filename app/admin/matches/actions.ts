@@ -57,7 +57,7 @@ export async function createMatch(
   _prevState: MatchFormState,
   formData: FormData
 ): Promise<MatchFormState> {
-  const session = await requireRole(["admin", "vorstand"]);
+  const session = await requireRole(["admin", "vorstand", "coach"]);
 
   const parsed = parseMatchForm(formData);
   if ("error" in parsed) return { error: parsed.error };
@@ -80,7 +80,7 @@ export async function updateMatch(
   _prevState: MatchFormState,
   formData: FormData
 ): Promise<MatchFormState> {
-  await requireRole(["admin", "vorstand"]);
+  await requireRole(["admin", "vorstand", "coach"]);
 
   const parsed = parseMatchForm(formData);
   if ("error" in parsed) return { error: parsed.error };
@@ -96,7 +96,7 @@ export async function updateMatch(
 }
 
 export async function deleteMatch(id: string): Promise<void> {
-  await requireRole(["admin", "vorstand"]);
+  await requireRole(["admin", "vorstand", "coach"]);
   const supabase = await createServerSupabaseClient();
   await supabase.from("matches").delete().eq("id", id);
 
