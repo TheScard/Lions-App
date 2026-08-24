@@ -1,10 +1,16 @@
 import { NextResponse, type NextRequest } from "next/server";
-// Bewusst der spezifische Unterpfad statt des "jose"-Barrels -- der Barrel
-// buendelt auch JWE-Verschluesselung, die CompressionStream/
-// DecompressionStream nutzt (in der Edge Runtime nicht unterstuetzt), obwohl
-// hier nur jwtVerify (JWS) gebraucht wird. Siehe auch lib/auth/session.ts.
-import { jwtVerify } from "jose/jwt/verify";
-import { SESSION_COOKIE_NAME } from "@/lib/auth/constants";
+import { jwtVerify } from "jose";
+
+// Bewusst als lokale Konstante dupliziert (statt aus @/lib/auth/constants zu
+// importieren) und "jose" bewusst als Top-Level-Paket statt Unterpfad-Import:
+// Vercels Edge-Function-Bundler fuer middleware.ts hat sich in der Praxis als
+// unzuverlaessig bei der Aufloesung von TS-Pfad-Aliasen (@/...) sowie bei
+// jose-Unterpfad-Importen (jose/jwt/verify) gezeigt ("referencing unsupported
+// modules"), obwohl beides lokal (next build) fehlerfrei kompiliert. Damit
+// middleware.ts unabhaengig von dieser Vercel-Eigenheit bleibt, importiert es
+// ausschliesslich npm-Pakete, keine eigenen Projektdateien. Aendert sich der
+// Cookie-Name in lib/auth/constants.ts, muss er hier manuell mitgezogen werden.
+const SESSION_COOKIE_NAME = "lions_session";
 
 const PROTECTED_PREFIXES = ["/dashboard", "/admin"];
 
