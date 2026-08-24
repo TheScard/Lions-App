@@ -2,7 +2,6 @@ import { requireSession } from "@/lib/auth/guards";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { MatchCard } from "@/components/MatchCard";
 import { splitUpcomingPast } from "@/lib/schedule";
-import { getAdminOwnTeam } from "@/lib/team";
 import { SectionKicker } from "@/components/SectionKicker";
 
 export default async function MatchesPage() {
@@ -37,14 +36,7 @@ export default async function MatchesPage() {
     .select("*")
     .order("starts_at", { ascending: true });
 
-  // Admins verwalten im Admin-Bereich weiterhin beide Teams, sehen hier
-  // aber -- wie normale Mitglieder -- nur ihr eigenes Team (falls zugewiesen).
-  const adminOwnTeam = await getAdminOwnTeam(session, supabase);
-  const visibleMatches = adminOwnTeam
-    ? (matches ?? []).filter((m) => m.team === adminOwnTeam)
-    : matches ?? [];
-
-  const { upcoming, past } = splitUpcomingPast(visibleMatches, "starts_at");
+  const { upcoming, past } = splitUpcomingPast(matches ?? [], "starts_at");
 
   return (
     <div className="flex flex-col gap-6">

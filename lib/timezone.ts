@@ -34,6 +34,17 @@ export function toLocalInputValue(iso?: string): string {
  * wiederholten Terminen ueber DST-Wechsel hinweg stabil bleibt (z.B. "immer
  * dienstags 18:00", nicht "immer 18:00 UTC+X").
  */
+/**
+ * Vergleicht zwei UTC-ISO-Timestamps auf Kalendertag-Gleichheit in
+ * Europe/Berlin (nicht UTC) -- "am selben Tag" ist ein Ortszeit-Konzept,
+ * ein reiner UTC-Datumsvergleich koennte abends/nachts um Mitternacht
+ * herum einen falschen Tag liefern.
+ */
+export function isSameLocalDay(aIso: string, bIso: string): boolean {
+  const format = (iso: string) => formatInTimeZone(new Date(iso), CLUB_TIME_ZONE, "yyyy-MM-dd");
+  return format(aIso) === format(bIso);
+}
+
 export function addWeeksToLocalInputValue(localValue: string, weeks: number): string {
   const [datePart, timePart] = localValue.split("T");
   const [year, month, day] = datePart.split("-").map(Number);

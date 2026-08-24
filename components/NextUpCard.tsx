@@ -1,4 +1,6 @@
 import Link from "next/link";
+import { TeamBadge } from "@/components/TeamBadge";
+import type { Team } from "@/types/database";
 
 export function NextUpCard({
   href,
@@ -6,6 +8,7 @@ export function NextUpCard({
   title,
   dateTime,
   location,
+  team,
   children,
 }: {
   href: string;
@@ -13,6 +16,7 @@ export function NextUpCard({
   title: string;
   dateTime?: string;
   location?: string | null;
+  team?: Team;
   children?: React.ReactNode;
 }) {
   return (
@@ -22,7 +26,10 @@ export function NextUpCard({
         aria-hidden="true"
       />
       <Link href={href} className="block">
-        <p className="text-xs font-bold uppercase tracking-wide text-primary">{kicker}</p>
+        <div className="flex items-start justify-between gap-2">
+          <p className="text-xs font-bold uppercase tracking-wide text-primary">{kicker}</p>
+          {team && <TeamBadge team={team} />}
+        </div>
         <p className="mt-1 font-heading text-lg italic font-bold uppercase tracking-wide text-text">
           {title}
         </p>

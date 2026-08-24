@@ -5,40 +5,45 @@ import { formatDateTime } from "@/lib/format";
 import { getTimeOfDayGreeting } from "@/lib/greeting";
 import { setRsvp } from "@/app/dashboard/trainings/actions";
 import { dismissPinHint } from "@/app/dashboard/account/actions";
-import { getAdminOwnTeam } from "@/lib/team";
+import { isSameLocalDay } from "@/lib/timezone";
 import { NextUpCard } from "@/components/NextUpCard";
 import type { Database } from "@/types/database";
 
 type Carpool = Database["public"]["Tables"]["carpools"]["Row"];
+
+// Deckt realistisch jeden Fall ab, in dem mehrere Spiele/Trainings (z.B.
+// Herren + U16) auf denselben Tag fallen, ohne unbegrenzt viele Zeilen zu
+// laden -- die Liste wird direkt danach auf den gemeinsamen Kalendertag
+// des jeweils naechsten Termins gefiltert.
+const SAME_DAY_FETCH_LIMIT = 10;
 
 export default async function DashboardHomePage() {
   const session = await requireSession();
   const supabase = await createServerSupabaseClient();
   const nowIso = new Date().toISOString();
 
-  // Admins verwalten im Admin-Bereich weiterhin beide Teams, sehen "Als
-  // Naechstes" aber -- wie normale Mitglieder -- nur ihr eigenes Team
-  // (falls zugewiesen). Muss vor den naechsten Termin-Abfragen bekannt
-  // sein, da .limit(1) sonst faelschlicherweise das global naechste statt
-  // das naechste eigene Spiel/Training liefern wuerde.
-  const adminOwnTeam = await getAdminOwnTeam(session, supabase);
-
-  // Alle unabhaengigen "naechster Termin"-Abfragen (inkl. der beiden
+  // Team-Filterung (Herren sehen nur Herren, U16 nur U16) passiert bereits
+  // ueber RLS fuer role "member" -- admin/vorstand/coach sehen dort immer
+  // beide Teams, daher hier keine zusaetzliche App-seitige Einschraenkung.
+  //
+  // Alle unabhaengigen "naechste Termine"-Abfragen (inkl. der beiden
   // Carpool-Teilabfragen: als Fahrer und ueber eigene Buchungen) parallel
   // statt sequenziell -- nur die finale Carpool-Detailabfrage haengt vom
   // Ergebnis der Buchungs-IDs ab und folgt danach in einem zweiten Schritt.
-  const [matchRes, trainingRes, eventRes, myRsvpsRes, driverCarpoolRes, bookingIdsRes, meRes] =
+  const [matchesRes, trainingsRes, eventRes, myRsvpsRes, driverCarpoolRes, bookingIdsRes, meRes] =
     await Promise.all([
-      (() => {
-        let query = supabase.from("matches").select("*").gte("starts_at", nowIso);
-        if (adminOwnTeam) query = query.eq("team", adminOwnTeam);
-        return query.order("starts_at", { ascending: true }).limit(1).maybeSingle();
-      })(),
-      (() => {
-        let query = supabase.from("trainings").select("*").gte("starts_at", nowIso);
-        if (adminOwnTeam) query = query.eq("team", adminOwnTeam);
-        return query.order("starts_at", { ascending: true }).limit(1).maybeSingle();
-      })(),
+      supabase
+        .from("matches")
+        .select("*")
+        .gte("starts_at", nowIso)
+        .order("starts_at", { ascending: true })
+        .limit(SAME_DAY_FETCH_LIMIT),
+      supabase
+        .from("trainings")
+        .select("*")
+        .gte("starts_at", nowIso)
+        .order("starts_at", { ascending: true })
+        .limit(SAME_DAY_FETCH_LIMIT),
       supabase
         .from("events")
         .select("*")
@@ -71,8 +76,19 @@ export default async function DashboardHomePage() {
         .maybeSingle()
     : { data: null };
 
-  const nextMatch = matchRes.data;
-  const nextTraining = trainingRes.data;
+  // Faellt der jeweils naechste Termin mit weiteren auf denselben Kalendertag
+  // (z.B. Herren- und U16-Spiel am selben Tag), werden alle davon gezeigt,
+  // nicht nur der zeitlich erste.
+  const allMatches = matchesRes.data ?? [];
+  const nextMatches = allMatches.length
+    ? allMatches.filter((m) => isSameLocalDay(m.starts_at, allMatches[0].starts_at))
+    : [];
+
+  const allTrainings = trainingsRes.data ?? [];
+  const nextTrainings = allTrainings.length
+    ? allTrainings.filter((t) => isSameLocalDay(t.starts_at, allTrainings[0].starts_at))
+    : [];
+
   const nextEvent = eventRes.data;
 
   // Naechste relevante Fahrt: falls das Mitglied sowohl eine eigene Fahrt
@@ -93,11 +109,13 @@ export default async function DashboardHomePage() {
     nextCarpool = { ...bookedCandidate, isDriving: false };
   }
 
-  const myTrainingRsvp = nextTraining
-    ? (myRsvpsRes.data ?? []).find((r) => r.training_id === nextTraining.id)
-    : undefined;
+  const myRsvpByTrainingId = new Map(
+    (myRsvpsRes.data ?? []).map((r) => [r.training_id, r.status])
+  );
 
-  const hasAnyNextUp = Boolean(nextMatch || nextTraining || nextEvent || nextCarpool);
+  const hasAnyNextUp = Boolean(
+    nextMatches.length || nextTrainings.length || nextEvent || nextCarpool
+  );
   const mustChangePin = meRes.data?.must_change_pin ?? false;
 
   return (
@@ -136,42 +154,49 @@ export default async function DashboardHomePage() {
           <p className="text-sm text-text-muted">Aktuell stehen keine Termine an.</p>
         )}
 
-        {nextMatch && (
+        {nextMatches.map((match) => (
           <NextUpCard
-            href={`/dashboard/matches/${nextMatch.id}`}
+            key={match.id}
+            href={`/dashboard/matches/${match.id}`}
             kicker="Nächstes Spiel"
-            title={nextMatch.title}
-            dateTime={formatDateTime(nextMatch.starts_at)}
-            location={nextMatch.location_name}
+            title={match.title}
+            dateTime={formatDateTime(match.starts_at)}
+            location={match.location_name}
+            team={match.team}
           />
-        )}
+        ))}
 
-        {nextTraining && (
-          <NextUpCard
-            href={`/dashboard/trainings/${nextTraining.id}`}
-            kicker="Nächstes Training"
-            title={nextTraining.title}
-            dateTime={formatDateTime(nextTraining.starts_at)}
-            location={nextTraining.location}
-          >
-            <div className="mt-3">
-              {myTrainingRsvp?.status === "yes" ? (
-                <p className="text-sm font-medium text-primary">Du hast zugesagt</p>
-              ) : myTrainingRsvp?.status === "no" ? (
-                <p className="text-sm font-medium text-text-muted">Du hast abgesagt</p>
-              ) : (
-                <form action={setRsvp.bind(null, nextTraining.id, "yes")}>
-                  <button
-                    type="submit"
-                    className="rounded-md bg-gradient-to-r from-primary-hover to-primary px-3 py-1.5 font-heading text-sm italic font-bold uppercase tracking-wide text-bg shadow-[0_4px_14px_-4px_var(--color-primary)] transition hover:brightness-105"
-                  >
-                    Zusagen
-                  </button>
-                </form>
-              )}
-            </div>
-          </NextUpCard>
-        )}
+        {nextTrainings.map((training) => {
+          const myStatus = myRsvpByTrainingId.get(training.id);
+          return (
+            <NextUpCard
+              key={training.id}
+              href={`/dashboard/trainings/${training.id}`}
+              kicker="Nächstes Training"
+              title={training.title}
+              dateTime={formatDateTime(training.starts_at)}
+              location={training.location}
+              team={training.team}
+            >
+              <div className="mt-3">
+                {myStatus === "yes" ? (
+                  <p className="text-sm font-medium text-primary">Du hast zugesagt</p>
+                ) : myStatus === "no" ? (
+                  <p className="text-sm font-medium text-text-muted">Du hast abgesagt</p>
+                ) : (
+                  <form action={setRsvp.bind(null, training.id, "yes")}>
+                    <button
+                      type="submit"
+                      className="rounded-md bg-gradient-to-r from-primary-hover to-primary px-3 py-1.5 font-heading text-sm italic font-bold uppercase tracking-wide text-bg shadow-[0_4px_14px_-4px_var(--color-primary)] transition hover:brightness-105"
+                    >
+                      Zusagen
+                    </button>
+                  </form>
+                )}
+              </div>
+            </NextUpCard>
+          );
+        })}
 
         {nextEvent && (
           <NextUpCard

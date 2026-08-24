@@ -1,7 +1,6 @@
 import { requireSession } from "@/lib/auth/guards";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { TrainingCard } from "@/components/TrainingCard";
-import { getAdminOwnTeam } from "@/lib/team";
 import type { Database, RsvpStatus } from "@/types/database";
 
 type Training = Database["public"]["Tables"]["trainings"]["Row"];
@@ -37,13 +36,7 @@ export default async function TrainingsPage() {
     .select("*")
     .gte("starts_at", new Date().toISOString())
     .order("starts_at", { ascending: true });
-
-  // Admins verwalten im Admin-Bereich weiterhin beide Teams, sehen hier
-  // aber -- wie normale Mitglieder -- nur ihr eigenes Team (falls zugewiesen).
-  const adminOwnTeam = await getAdminOwnTeam(session, supabase);
-  const trainings: Training[] = adminOwnTeam
-    ? (trainingsData ?? []).filter((t) => t.team === adminOwnTeam)
-    : trainingsData ?? [];
+  const trainings: Training[] = trainingsData ?? [];
 
   const trainingIds = trainings.map((t) => t.id);
   const { data: rsvpsData } = trainingIds.length
@@ -65,7 +58,8 @@ export default async function TrainingsPage() {
     }
   }
 
-  const canViewRsvps = session.role === "admin" || session.role === "vorstand";
+  const canViewRsvps =
+    session.role === "admin" || session.role === "vorstand" || session.role === "coach";
 
   return (
     <div className="flex flex-col gap-6">
