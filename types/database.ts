@@ -3,7 +3,7 @@
 // `supabase gen types typescript` ersetzt/aktualisiert werden:
 //   npx supabase gen types typescript --local > types/database.ts
 
-export type MemberRole = "member" | "admin" | "vorstand";
+export type MemberRole = "member" | "admin" | "vorstand" | "coach";
 export type RsvpStatus = "yes" | "no";
 export type Team = "herren" | "u16";
 
@@ -119,18 +119,44 @@ export interface Database {
           training_id: string;
           member_id: string;
           status: RsvpStatus;
+          attended: boolean | null;
         },
         {
           id?: string;
           training_id: string;
           member_id: string;
           status: RsvpStatus;
+          attended?: boolean | null;
         },
         Partial<{
           id: string;
           training_id: string;
           member_id: string;
           status: RsvpStatus;
+          attended: boolean | null;
+        }>
+      >;
+      match_attendance: Table<
+        {
+          id: string;
+          match_id: string;
+          member_id: string;
+          attended: boolean;
+          created_at: string;
+        },
+        {
+          id?: string;
+          match_id: string;
+          member_id: string;
+          attended?: boolean;
+          created_at?: string;
+        },
+        Partial<{
+          id: string;
+          match_id: string;
+          member_id: string;
+          attended: boolean;
+          created_at: string;
         }>
       >;
       events: Table<
