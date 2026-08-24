@@ -1,5 +1,9 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { jwtVerify } from "jose";
+// Bewusst der spezifische Unterpfad statt des "jose"-Barrels -- der Barrel
+// buendelt auch JWE-Verschluesselung, die CompressionStream/
+// DecompressionStream nutzt (in der Edge Runtime nicht unterstuetzt), obwohl
+// hier nur jwtVerify (JWS) gebraucht wird. Siehe auch lib/auth/session.ts.
+import { jwtVerify } from "jose/jwt/verify";
 import { SESSION_COOKIE_NAME } from "@/lib/auth/constants";
 
 const PROTECTED_PREFIXES = ["/dashboard", "/admin"];

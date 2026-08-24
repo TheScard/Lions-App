@@ -1,6 +1,14 @@
 import "server-only";
 import { cookies } from "next/headers";
-import { SignJWT, jwtVerify } from "jose";
+// Bewusst die spezifischen Unterpfade statt des "jose"-Barrels: der Barrel
+// buendelt auch JWE-Verschluesselung (jwt/encrypt.js), die intern
+// CompressionStream/DecompressionStream nutzt -- das loest in der Vercel
+// Edge Runtime (middleware.ts importiert verifySessionToken/jwtVerify
+// transitiv nicht, aber signSessionToken laeuft ueber dieselbe Session-Datei)
+// eine "Node.js API not supported"-Build-Warnung aus. Wir nutzen ohnehin nur
+// Signieren/Verifizieren (JWS), nie Verschluesselung (JWE).
+import { SignJWT } from "jose/jwt/sign";
+import { jwtVerify } from "jose/jwt/verify";
 import type { SessionPayload } from "@/types/session";
 import type { MemberRole } from "@/types/database";
 import { SESSION_COOKIE_NAME } from "@/lib/auth/constants";
