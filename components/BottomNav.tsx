@@ -35,9 +35,8 @@ export function BottomNav() {
                   }`}
                 >
                   <Icon
-                    size={20}
                     strokeWidth={active ? 2.5 : 2}
-                    className={active ? "text-bg" : "text-text-muted"}
+                    className={`h-6 w-6 md:h-5 md:w-5 ${active ? "text-bg" : "text-text-muted"}`}
                   />
                 </span>
               </Link>

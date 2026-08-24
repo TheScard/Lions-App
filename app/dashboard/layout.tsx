@@ -1,6 +1,6 @@
 import Image from "next/image";
 import Link from "next/link";
-import { KeyRound, Settings } from "lucide-react";
+import { FileText, KeyRound, Settings } from "lucide-react";
 import { redirect } from "next/navigation";
 import { getSession } from "@/lib/auth/session";
 import { BottomNav } from "@/components/BottomNav";
@@ -12,7 +12,8 @@ export default async function DashboardLayout({ children }: { children: React.Re
     redirect("/login");
   }
 
-  const canManage = session.role === "admin" || session.role === "vorstand";
+  const canManage =
+    session.role === "admin" || session.role === "vorstand" || session.role === "coach";
 
   return (
     <div className="flex min-h-dvh flex-col bg-bg">
@@ -33,6 +34,13 @@ export default async function DashboardLayout({ children }: { children: React.Re
           </div>
         </div>
         <div className="flex items-center gap-1">
+          <Link
+            href="/dashboard/documents"
+            aria-label="Dokumente"
+            className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-sm font-medium text-text-muted transition hover:bg-surface-2 hover:text-primary"
+          >
+            <FileText size={18} />
+          </Link>
           <Link
             href="/dashboard/account"
             aria-label="Eigene PIN ändern"
