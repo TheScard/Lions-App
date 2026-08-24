@@ -1,10 +1,8 @@
 import { requireSession } from "@/lib/auth/guards";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { TrainingCard } from "@/components/TrainingCard";
-import { splitUpcomingPast } from "@/lib/schedule";
 import { getAdminOwnTeam } from "@/lib/team";
 import type { Database, RsvpStatus } from "@/types/database";
-import { SectionKicker } from "@/components/SectionKicker";
 
 type Training = Database["public"]["Tables"]["trainings"]["Row"];
 
@@ -37,6 +35,7 @@ export default async function TrainingsPage() {
   const { data: trainingsData } = await supabase
     .from("trainings")
     .select("*")
+    .gte("starts_at", new Date().toISOString())
     .order("starts_at", { ascending: true });
 
   // Admins verwalten im Admin-Bereich weiterhin beide Teams, sehen hier
@@ -66,40 +65,25 @@ export default async function TrainingsPage() {
     }
   }
 
-  const { upcoming, past } = splitUpcomingPast(trainings, "starts_at");
   const canViewRsvps = session.role === "admin" || session.role === "vorstand";
-
-  function renderCard(training: Training) {
-    return (
-      <TrainingCard
-        key={training.id}
-        training={training}
-        yesCount={yesCountByTraining.get(training.id) ?? 0}
-        myStatus={myStatusByTraining.get(training.id) ?? null}
-        canViewRsvps={canViewRsvps}
-      />
-    );
-  }
 
   return (
     <div className="flex flex-col gap-6">
       <h1 className="text-3xl text-text">Training</h1>
 
       <section className="flex flex-col gap-3">
-        <SectionKicker label="Anstehend" accent />
-        {upcoming.length === 0 ? (
+        {trainings.length === 0 ? (
           <p className="text-sm text-text-muted">Keine anstehenden Trainings.</p>
         ) : (
-          upcoming.map(renderCard)
-        )}
-      </section>
-
-      <section className="flex flex-col gap-3">
-        <SectionKicker label="Vergangen" />
-        {past.length === 0 ? (
-          <p className="text-sm text-text-muted">Noch keine vergangenen Trainings.</p>
-        ) : (
-          past.map(renderCard)
+          trainings.map((training) => (
+            <TrainingCard
+              key={training.id}
+              training={training}
+              yesCount={yesCountByTraining.get(training.id) ?? 0}
+              myStatus={myStatusByTraining.get(training.id) ?? null}
+              canViewRsvps={canViewRsvps}
+            />
+          ))
         )}
       </section>
     </div>

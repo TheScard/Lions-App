@@ -2,9 +2,7 @@ import Link from "next/link";
 import { requireSession } from "@/lib/auth/guards";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { CarpoolCard } from "@/components/CarpoolCard";
-import { splitUpcomingPast } from "@/lib/schedule";
 import type { Database } from "@/types/database";
-import { SectionKicker } from "@/components/SectionKicker";
 
 type Carpool = Database["public"]["Tables"]["carpools"]["Row"];
 
@@ -20,6 +18,7 @@ export default async function CarpoolsPage({
   let carpoolsQuery = supabase
     .from("carpools")
     .select("*")
+    .gte("departure_time", new Date().toISOString())
     .order("departure_time", { ascending: true });
   if (matchId) {
     carpoolsQuery = carpoolsQuery.eq("match_id", matchId);
@@ -64,8 +63,6 @@ export default async function CarpoolsPage({
     list.push(booking.member_id);
     bookingsByCarpool.set(booking.carpool_id, list);
   }
-
-  const { upcoming, past } = splitUpcomingPast(carpools, "departure_time");
 
   function renderCard(carpool: Carpool) {
     const bookedMemberIds = bookingsByCarpool.get(carpool.id) ?? [];
@@ -114,20 +111,10 @@ export default async function CarpoolsPage({
       )}
 
       <section className="flex flex-col gap-3">
-        <SectionKicker label="Anstehend" accent />
-        {upcoming.length === 0 ? (
+        {carpools.length === 0 ? (
           <p className="text-sm text-text-muted">Keine anstehenden Fahrten.</p>
         ) : (
-          upcoming.map(renderCard)
-        )}
-      </section>
-
-      <section className="flex flex-col gap-3">
-        <SectionKicker label="Vergangen" />
-        {past.length === 0 ? (
-          <p className="text-sm text-text-muted">Noch keine vergangenen Fahrten.</p>
-        ) : (
-          past.map(renderCard)
+          carpools.map(renderCard)
         )}
       </section>
     </div>
