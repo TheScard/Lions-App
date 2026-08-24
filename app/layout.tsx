@@ -20,6 +20,14 @@ const inter = Inter({
   display: "swap",
 });
 
+// Server Actions und Route Handler sollen in derselben Region wie die
+// Supabase-Datenbank laufen (Frankfurt), um Latenz zu minimieren. Cascaded
+// an alle Segmente, sofern nicht einzeln ueberschrieben. Gilt NICHT fuer
+// middleware.ts (Edge Runtime laeuft grundsaetzlich global verteilt im
+// Vercel Edge Network, nicht Region-pinnbar) -- siehe vercel.json fuer die
+// deployment-weite Absicherung derselben Region.
+export const preferredRegion = "fra1";
+
 export const metadata: Metadata = {
   title: "Lions Adenau",
   description: "Vereins-App des Lions Club Adenau",
