@@ -5,9 +5,11 @@ import { changeRole, changeTeam, deleteMember } from "@/app/admin/members/action
 import { ResetPinButton } from "@/components/admin/ResetPinButton";
 import { ConfirmSubmitButton } from "@/components/ConfirmSubmitButton";
 import { TeamBadge } from "@/components/TeamBadge";
+import { CLUB_TIME_ZONE } from "@/lib/timezone";
 
 function formatDate(iso: string): string {
   return new Intl.DateTimeFormat("de-DE", {
+    timeZone: CLUB_TIME_ZONE,
     day: "2-digit",
     month: "2-digit",
     year: "numeric",

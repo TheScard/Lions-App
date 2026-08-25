@@ -1,5 +1,8 @@
+import { CLUB_TIME_ZONE } from "@/lib/timezone";
+
 export function formatDateTime(iso: string): string {
   return new Intl.DateTimeFormat("de-DE", {
+    timeZone: CLUB_TIME_ZONE,
     weekday: "short",
     day: "2-digit",
     month: "2-digit",
