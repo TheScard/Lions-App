@@ -45,6 +45,16 @@ export async function sendPush({
   path: string;
 }): Promise<void> {
   if (memberIds.length === 0) return;
+
+  // Sicherheitsschalter fuer die lokale Entwicklung: .env.local zeigt auf
+  // die LIVE-Datenbank mit echten Mitgliedern und echten Push-Abos. Mit
+  // PUSH_DRY_RUN=true wird nichts tatsaechlich versendet, nur geloggt --
+  // darf NIE in Vercel/Production gesetzt sein.
+  if (process.env.PUSH_DRY_RUN === "true") {
+    console.log("[PUSH_DRY_RUN] Kein echter Versand.", { memberIds, title, body, path });
+    return;
+  }
+
   if (!VAPID_PUBLIC_KEY || !VAPID_PRIVATE_KEY || !VAPID_SUBJECT) {
     console.error("Push nicht gesendet: VAPID-Env-Variablen fehlen.");
     return;

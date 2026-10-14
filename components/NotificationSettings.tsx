@@ -35,7 +35,15 @@ function urlBase64ToUint8Array(base64String: string): Uint8Array {
   return output;
 }
 
-export function NotificationSettings() {
+export function NotificationSettings({
+  disableEnable = false,
+  disableReason,
+}: {
+  /** Deaktiviert den "Aktivieren"-Button zusaetzlich (z.B. auf dem iPhone
+   * ohne Home-Bildschirm-Installation, siehe /dashboard/start). */
+  disableEnable?: boolean;
+  disableReason?: string;
+} = {}) {
   const [status, setStatus] = useState<Status>("checking");
   const [message, setMessage] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
@@ -158,9 +166,19 @@ export function NotificationSettings() {
       )}
 
       {status === "inactive" && (
-        <button type="button" disabled={isPending} onClick={enable} className={PRIMARY_BUTTON}>
-          Benachrichtigungen aktivieren
-        </button>
+        <div className="flex flex-col gap-1.5">
+          <button
+            type="button"
+            disabled={isPending || disableEnable}
+            onClick={enable}
+            className={PRIMARY_BUTTON}
+          >
+            Benachrichtigungen aktivieren
+          </button>
+          {disableEnable && disableReason && (
+            <p className="text-xs text-text-muted">{disableReason}</p>
+          )}
+        </div>
       )}
 
       {status === "active" && (

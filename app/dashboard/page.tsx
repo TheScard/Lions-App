@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { requireSession } from "@/lib/auth/guards";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { formatDateTime } from "@/lib/format";
@@ -8,9 +9,11 @@ import { setRsvp } from "@/app/dashboard/trainings/actions";
 import { setMatchRsvp } from "@/app/dashboard/matches/actions";
 import { dismissPinHint } from "@/app/dashboard/account/actions";
 import { isSameLocalDay } from "@/lib/timezone";
+import { getMemberTeamMap } from "@/lib/teams";
 import { NextUpCard } from "@/components/NextUpCard";
 import { RsvpSection } from "@/components/RsvpSection";
-import type { Database } from "@/types/database";
+import { RsvpCount } from "@/components/RsvpCount";
+import type { Database, RsvpStatus } from "@/types/database";
 
 type Carpool = Database["public"]["Tables"]["carpools"]["Row"];
 
@@ -73,8 +76,19 @@ export default async function DashboardHomePage() {
       .limit(1)
       .maybeSingle(),
     supabase.from("carpool_bookings").select("carpool_id").eq("member_id", session.memberId),
-    supabase.from("members").select("must_change_pin, team").eq("id", session.memberId).maybeSingle(),
+    supabase
+      .from("members")
+      .select("must_change_pin, team, onboarding_completed_at")
+      .eq("id", session.memberId)
+      .maybeSingle(),
   ]);
+
+  // Erste-Schritte-Seite: nur hier auf der Startseite umgeleitet (nicht in
+  // Middleware/Layout), damit /dashboard/start selbst und alle anderen
+  // Seiten jederzeit direkt erreichbar bleiben.
+  if (meRes.data && !meRes.data.onboarding_completed_at) {
+    redirect("/dashboard/start");
+  }
 
   const myTeam = meRes.data?.team ?? null;
 
@@ -128,6 +142,59 @@ export default async function DashboardHomePage() {
   );
   const myRsvpByMatchId = new Map((myMatchRsvpsRes.data ?? []).map((r) => [r.match_id, r.status]));
 
+  // Zusagen-Anzahl fuer die Karten auf der Startseite -- nur fuer die
+  // tatsaechlich angezeigten (naechsten) Termine abgefragt, nicht fuer alle
+  // geladenen. Zaehlung beruecksichtigt nur Abstimmungen, deren
+  // Mitglieds-Team (noch) zum Termin-Team passt (siehe checkRsvpEligibility()
+  // in lib/rsvp.ts).
+  const nextMatchIds = nextMatches.map((m) => m.id);
+  const nextTrainingIds = nextTrainings.map((t) => t.id);
+  const [matchRsvpsForCountRes, trainingRsvpsForCountRes] = await Promise.all([
+    nextMatchIds.length
+      ? supabase.from("match_rsvps").select("match_id, member_id, status").in("match_id", nextMatchIds)
+      : Promise.resolve({ data: [] as { match_id: string; member_id: string; status: RsvpStatus }[] }),
+    nextTrainingIds.length
+      ? supabase
+          .from("training_rsvps")
+          .select("training_id, member_id, status")
+          .in("training_id", nextTrainingIds)
+      : Promise.resolve({ data: [] as { training_id: string; member_id: string; status: RsvpStatus | null }[] }),
+  ]);
+
+  const matchRsvpsForCount = matchRsvpsForCountRes.data ?? [];
+  const trainingRsvpsForCount = trainingRsvpsForCountRes.data ?? [];
+  const teamByMemberForCount = await getMemberTeamMap(
+    supabase,
+    Array.from(
+      new Set([
+        ...matchRsvpsForCount.map((r) => r.member_id),
+        ...trainingRsvpsForCount.map((r) => r.member_id),
+      ])
+    )
+  );
+
+  const matchTeamById = new Map(nextMatches.map((m) => [m.id, m.team]));
+  const trainingTeamById = new Map(nextTrainings.map((t) => [t.id, t.team]));
+
+  const yesCountByMatch = new Map<string, number>();
+  for (const rsvp of matchRsvpsForCount) {
+    if (rsvp.status === "yes" && teamByMemberForCount.get(rsvp.member_id) === matchTeamById.get(rsvp.match_id)) {
+      yesCountByMatch.set(rsvp.match_id, (yesCountByMatch.get(rsvp.match_id) ?? 0) + 1);
+    }
+  }
+  const yesCountByTraining = new Map<string, number>();
+  for (const rsvp of trainingRsvpsForCount) {
+    if (
+      rsvp.status === "yes" &&
+      teamByMemberForCount.get(rsvp.member_id) === trainingTeamById.get(rsvp.training_id)
+    ) {
+      yesCountByTraining.set(rsvp.training_id, (yesCountByTraining.get(rsvp.training_id) ?? 0) + 1);
+    }
+  }
+
+  const canSeeMin =
+    session.role === "admin" || session.role === "vorstand" || session.role === "coach";
+
   const hasAnyNextUp = Boolean(
     nextMatches.length || nextTrainings.length || nextEvent || nextCarpool
   );
@@ -179,6 +246,14 @@ export default async function DashboardHomePage() {
             location={match.location_name}
             team={match.team}
           >
+            <div className="mt-1">
+              <RsvpCount
+                count={yesCountByMatch.get(match.id) ?? 0}
+                min={match.min_participants}
+                canSeeMin={canSeeMin}
+                isFuture={!isPast(match.starts_at)}
+              />
+            </div>
             <div className="mt-3">
               <RsvpSection
                 myTeam={myTeam}
@@ -202,6 +277,14 @@ export default async function DashboardHomePage() {
             location={training.location}
             team={training.team}
           >
+            <div className="mt-1">
+              <RsvpCount
+                count={yesCountByTraining.get(training.id) ?? 0}
+                min={training.min_participants}
+                canSeeMin={canSeeMin}
+                isFuture={!isPast(training.starts_at)}
+              />
+            </div>
             <div className="mt-3">
               <RsvpSection
                 myTeam={myTeam}
