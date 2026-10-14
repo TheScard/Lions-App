@@ -88,9 +88,15 @@ export async function createCarpool(
  * atomar in einer Transaktion mit Zeilensperre ausfuehrt (Race-Condition-
  * Schutz, siehe Kommentar dort). Bei ausgebuchter Fahrt wird mit einer
  * Fehlermeldung per Query-Param zurueckgeleitet.
+ *
+ * Die RPC laeuft bewusst ueber den RLS-Client (nicht den Service-Role-
+ * Client), weil book_carpool_seat() intern auth.uid() auswertet -- der
+ * Service-Role-Client hat keinen Auth-Kontext. Die anschliessende
+ * Push-Benachrichtigung an den Fahrer braucht dagegen keinen Auth-Kontext
+ * und laeuft ueber den Service-Role-Client.
  */
 export async function bookSeat(carpoolId: string, redirectMatchId: string | null): Promise<void> {
-  await requireSession();
+  const session = await requireSession();
   const supabase = await createServerSupabaseClient();
 
   const { error } = await supabase.rpc("book_carpool_seat", { p_carpool_id: carpoolId });
@@ -101,41 +107,89 @@ export async function bookSeat(carpoolId: string, redirectMatchId: string | null
     redirect(`${target}${separator}bookingError=1`);
   }
 
+  const admin = createAdminClient();
+  const { data: carpool } = await admin
+    .from("carpools")
+    .select("driver_id, total_seats, match_id")
+    .eq("id", carpoolId)
+    .maybeSingle();
+
+  if (carpool && carpool.driver_id !== session.memberId) {
+    const { count } = await admin
+      .from("carpool_bookings")
+      .select("*", { count: "exact", head: true })
+      .eq("carpool_id", carpoolId);
+    const freeSeats = carpool.total_seats - (count ?? 0);
+    await sendPush({
+      memberIds: [carpool.driver_id],
+      title: "Neue Buchung in deiner Fahrt",
+      body: `${session.name} fährt mit. Noch ${freeSeats} von ${carpool.total_seats} Plätzen frei.`,
+      path: redirectTargetFor(carpool.match_id),
+    });
+  }
+
   redirect(target);
 }
 
 /**
  * Storniert ausschliesslich die eigene Buchung: gefiltert auf member_id =
- * session.memberId, unabhaengig davon welche carpoolId uebergeben wird.
- * RLS (carpool_bookings_delete_own_or_driver_or_admin) blockt ohnehin
- * fremde Buchungen serverseitig zusaetzlich ab.
+ * session.memberId, unabhaengig davon welche carpoolId uebergeben wird --
+ * member_id kommt also nie aus dem Request. Schreibt ueber den
+ * Service-Role-Client, da die Einschraenkung bereits in der WHERE-Klausel
+ * aus der Session kommt.
  */
 export async function cancelBooking(carpoolId: string, redirectMatchId: string | null): Promise<void> {
   const session = await requireSession();
-  const supabase = await createServerSupabaseClient();
+  const admin = createAdminClient();
 
-  await supabase
+  const { count } = await admin
     .from("carpool_bookings")
-    .delete()
+    .delete({ count: "exact" })
     .eq("carpool_id", carpoolId)
     .eq("member_id", session.memberId);
+
+  // Nur pushen, wenn tatsaechlich eine Buchung geloescht wurde, und nie an
+  // die stornierende Person selbst (die ist nie der Fahrer der eigenen
+  // Buchung, die Pruefung ist dennoch defensiv vorhanden).
+  if (count && count > 0) {
+    const { data: carpool } = await admin
+      .from("carpools")
+      .select("driver_id, total_seats, match_id")
+      .eq("id", carpoolId)
+      .maybeSingle();
+
+    if (carpool && carpool.driver_id !== session.memberId) {
+      const { count: bookedCount } = await admin
+        .from("carpool_bookings")
+        .select("*", { count: "exact", head: true })
+        .eq("carpool_id", carpoolId);
+      const freeSeats = carpool.total_seats - (bookedCount ?? 0);
+      await sendPush({
+        memberIds: [carpool.driver_id],
+        title: "Stornierung in deiner Fahrt",
+        body: `${session.name} hat storniert. Jetzt ${freeSeats} von ${carpool.total_seats} Plätzen frei.`,
+        path: redirectTargetFor(carpool.match_id),
+      });
+    }
+  }
 
   redirect(redirectTargetFor(redirectMatchId));
 }
 
 /**
  * Loescht eine Fahrt nur, wenn der Aufrufer der Fahrer ist oder
- * admin/vorstand -- serverseitig geprueft (nicht nur UI-Ausblenden).
- * RLS (carpools_delete_own_or_admin) verweigert einen unautorisierten
- * Loeschversuch zusaetzlich auf DB-Ebene.
+ * admin/vorstand/coach -- serverseitig geprueft (nicht nur UI-Ausblenden).
+ * Die Mitfahrer werden VOR dem Loeschen geladen (carpool_bookings wird per
+ * on-delete-cascade mitgeloescht), damit ihnen danach noch eine Push ueber
+ * die Absage zugestellt werden kann -- nie an die loeschende Person.
  */
 export async function deleteCarpool(carpoolId: string, redirectMatchId: string | null): Promise<void> {
   const session = await requireSession();
-  const supabase = await createServerSupabaseClient();
+  const admin = createAdminClient();
 
-  const { data: carpool } = await supabase
+  const { data: carpool } = await admin
     .from("carpools")
-    .select("driver_id")
+    .select("driver_id, departure_point, departure_time")
     .eq("id", carpoolId)
     .maybeSingle();
 
@@ -144,7 +198,24 @@ export async function deleteCarpool(carpoolId: string, redirectMatchId: string |
     session.role === "admin" || session.role === "vorstand" || session.role === "coach";
 
   if (carpool && (isOwner || isPrivileged)) {
-    await supabase.from("carpools").delete().eq("id", carpoolId);
+    const { data: bookings } = await admin
+      .from("carpool_bookings")
+      .select("member_id")
+      .eq("carpool_id", carpoolId);
+    const passengerIds = (bookings ?? [])
+      .map((b) => b.member_id)
+      .filter((memberId) => memberId !== session.memberId);
+
+    await admin.from("carpools").delete().eq("id", carpoolId);
+
+    if (passengerIds.length > 0) {
+      await sendPush({
+        memberIds: passengerIds,
+        title: "Fahrt abgesagt",
+        body: `Die Fahrt am ${formatPushDateTime(carpool.departure_time)} ab ${carpool.departure_point} wurde gelöscht. Bitte such dir eine andere Mitfahrgelegenheit.`,
+        path: "/dashboard/carpools",
+      });
+    }
   }
 
   redirect(redirectTargetFor(redirectMatchId));

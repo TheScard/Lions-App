@@ -120,6 +120,64 @@ async function remindMatches(admin: AdminClient, now: number): Promise<number> {
   return sent;
 }
 
+/**
+ * Erinnerung 2h vor Abfahrt einer Fahrgemeinschaft -- nur wenn mindestens
+ * eine Buchung besteht. Der notification_log-Slot wird erst beansprucht,
+ * NACHDEM feststeht, dass es Buchungen gibt: eine Fahrt ohne Buchungen soll
+ * beim naechsten Cron-Lauf (15 Min. spaeter) erneut geprueft werden,
+ * falls bis dahin doch noch jemand bucht.
+ */
+async function remindCarpools(admin: AdminClient, now: number): Promise<number> {
+  const nowIso = new Date(now).toISOString();
+  const windowEndIso = new Date(now + 2 * 60 * 60 * 1000).toISOString();
+
+  const { data: carpools } = await admin
+    .from("carpools")
+    .select("id, driver_id, total_seats, departure_point, departure_time, match_id")
+    .gt("departure_time", nowIso)
+    .lte("departure_time", windowEndIso);
+
+  let sent = 0;
+  for (const carpool of carpools ?? []) {
+    const { data: bookings } = await admin
+      .from("carpool_bookings")
+      .select("member_id")
+      .eq("carpool_id", carpool.id);
+    const passengerIds = (bookings ?? []).map((b) => b.member_id);
+    if (passengerIds.length === 0) continue;
+
+    const claimed = await claimNotification(admin, "carpool_2h", carpool.id);
+    if (!claimed) continue;
+
+    const memberIds = Array.from(new Set([carpool.driver_id, ...passengerIds]));
+    const { data: members } = await admin.from("members").select("id, name").in("id", memberIds);
+    const nameById = new Map((members ?? []).map((m) => [m.id, m.name]));
+    const driverName = nameById.get(carpool.driver_id) ?? "Der Fahrer";
+    const passengerNames = passengerIds.map((id) => nameById.get(id) ?? "Unbekannt");
+
+    const path = carpool.match_id
+      ? `/dashboard/carpools?match_id=${carpool.match_id}`
+      : "/dashboard/carpools";
+
+    await sendPush({
+      memberIds: passengerIds,
+      title: "Erinnerung an deine Fahrgemeinschaft",
+      body: `Abfahrt ${formatPushDateTime(carpool.departure_time)} ab ${carpool.departure_point}, Fahrer: ${driverName}.`,
+      path,
+    });
+
+    await sendPush({
+      memberIds: [carpool.driver_id],
+      title: "Deine Fahrt startet bald",
+      body: `${formatPushDateTime(carpool.departure_time)} ab ${carpool.departure_point} mit ${passengerNames.length} Mitfahrer(n): ${passengerNames.join(", ")}.`,
+      path,
+    });
+
+    sent++;
+  }
+  return sent;
+}
+
 async function handleReminders(request: NextRequest): Promise<NextResponse> {
   if (!isAuthorized(request)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -128,12 +186,13 @@ async function handleReminders(request: NextRequest): Promise<NextResponse> {
   const admin = createAdminClient();
   const now = Date.now();
 
-  const [trainingReminders, matchReminders] = await Promise.all([
+  const [trainingReminders, matchReminders, carpoolReminders] = await Promise.all([
     remindTrainings(admin, now),
     remindMatches(admin, now),
+    remindCarpools(admin, now),
   ]);
 
-  return NextResponse.json({ trainingReminders, matchReminders });
+  return NextResponse.json({ trainingReminders, matchReminders, carpoolReminders });
 }
 
 export async function GET(request: NextRequest) {
