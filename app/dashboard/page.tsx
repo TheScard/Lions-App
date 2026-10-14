@@ -3,10 +3,13 @@ import { requireSession } from "@/lib/auth/guards";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { formatDateTime } from "@/lib/format";
 import { getTimeOfDayGreeting } from "@/lib/greeting";
+import { isPast } from "@/lib/schedule";
 import { setRsvp } from "@/app/dashboard/trainings/actions";
+import { setMatchRsvp } from "@/app/dashboard/matches/actions";
 import { dismissPinHint } from "@/app/dashboard/account/actions";
 import { isSameLocalDay } from "@/lib/timezone";
 import { NextUpCard } from "@/components/NextUpCard";
+import { RsvpSection } from "@/components/RsvpSection";
 import type { Database } from "@/types/database";
 
 type Carpool = Database["public"]["Tables"]["carpools"]["Row"];
@@ -30,39 +33,50 @@ export default async function DashboardHomePage() {
   // Carpool-Teilabfragen: als Fahrer und ueber eigene Buchungen) parallel
   // statt sequenziell -- nur die finale Carpool-Detailabfrage haengt vom
   // Ergebnis der Buchungs-IDs ab und folgt danach in einem zweiten Schritt.
-  const [matchesRes, trainingsRes, eventRes, myRsvpsRes, driverCarpoolRes, bookingIdsRes, meRes] =
-    await Promise.all([
-      supabase
-        .from("matches")
-        .select("*")
-        .gte("starts_at", nowIso)
-        .order("starts_at", { ascending: true })
-        .limit(SAME_DAY_FETCH_LIMIT),
-      supabase
-        .from("trainings")
-        .select("*")
-        .gte("starts_at", nowIso)
-        .order("starts_at", { ascending: true })
-        .limit(SAME_DAY_FETCH_LIMIT),
-      supabase
-        .from("events")
-        .select("*")
-        .gte("starts_at", nowIso)
-        .order("starts_at", { ascending: true })
-        .limit(1)
-        .maybeSingle(),
-      supabase.from("training_rsvps").select("training_id, status").eq("member_id", session.memberId),
-      supabase
-        .from("carpools")
-        .select("*")
-        .eq("driver_id", session.memberId)
-        .gte("departure_time", nowIso)
-        .order("departure_time", { ascending: true })
-        .limit(1)
-        .maybeSingle(),
-      supabase.from("carpool_bookings").select("carpool_id").eq("member_id", session.memberId),
-      supabase.from("members").select("must_change_pin").eq("id", session.memberId).maybeSingle(),
-    ]);
+  const [
+    matchesRes,
+    trainingsRes,
+    eventRes,
+    myTrainingRsvpsRes,
+    myMatchRsvpsRes,
+    driverCarpoolRes,
+    bookingIdsRes,
+    meRes,
+  ] = await Promise.all([
+    supabase
+      .from("matches")
+      .select("*")
+      .gte("starts_at", nowIso)
+      .order("starts_at", { ascending: true })
+      .limit(SAME_DAY_FETCH_LIMIT),
+    supabase
+      .from("trainings")
+      .select("*")
+      .gte("starts_at", nowIso)
+      .order("starts_at", { ascending: true })
+      .limit(SAME_DAY_FETCH_LIMIT),
+    supabase
+      .from("events")
+      .select("*")
+      .gte("starts_at", nowIso)
+      .order("starts_at", { ascending: true })
+      .limit(1)
+      .maybeSingle(),
+    supabase.from("training_rsvps").select("training_id, status").eq("member_id", session.memberId),
+    supabase.from("match_rsvps").select("match_id, status").eq("member_id", session.memberId),
+    supabase
+      .from("carpools")
+      .select("*")
+      .eq("driver_id", session.memberId)
+      .gte("departure_time", nowIso)
+      .order("departure_time", { ascending: true })
+      .limit(1)
+      .maybeSingle(),
+    supabase.from("carpool_bookings").select("carpool_id").eq("member_id", session.memberId),
+    supabase.from("members").select("must_change_pin, team").eq("id", session.memberId).maybeSingle(),
+  ]);
+
+  const myTeam = meRes.data?.team ?? null;
 
   const bookedCarpoolIds = (bookingIdsRes.data ?? []).map((b) => b.carpool_id);
   const bookedCarpoolRes = bookedCarpoolIds.length
@@ -110,8 +124,9 @@ export default async function DashboardHomePage() {
   }
 
   const myRsvpByTrainingId = new Map(
-    (myRsvpsRes.data ?? []).map((r) => [r.training_id, r.status])
+    (myTrainingRsvpsRes.data ?? []).map((r) => [r.training_id, r.status])
   );
+  const myRsvpByMatchId = new Map((myMatchRsvpsRes.data ?? []).map((r) => [r.match_id, r.status]));
 
   const hasAnyNextUp = Boolean(
     nextMatches.length || nextTrainings.length || nextEvent || nextCarpool
@@ -163,40 +178,42 @@ export default async function DashboardHomePage() {
             dateTime={formatDateTime(match.starts_at)}
             location={match.location_name}
             team={match.team}
-          />
+          >
+            <div className="mt-3">
+              <RsvpSection
+                myTeam={myTeam}
+                eventTeam={match.team}
+                started={isPast(match.starts_at)}
+                myStatus={myRsvpByMatchId.get(match.id) ?? null}
+                yesAction={setMatchRsvp.bind(null, match.id, "yes")}
+                noAction={setMatchRsvp.bind(null, match.id, "no")}
+              />
+            </div>
+          </NextUpCard>
         ))}
 
-        {nextTrainings.map((training) => {
-          const myStatus = myRsvpByTrainingId.get(training.id);
-          return (
-            <NextUpCard
-              key={training.id}
-              href={`/dashboard/trainings/${training.id}`}
-              kicker="Nächstes Training"
-              title={training.title}
-              dateTime={formatDateTime(training.starts_at)}
-              location={training.location}
-              team={training.team}
-            >
-              <div className="mt-3">
-                {myStatus === "yes" ? (
-                  <p className="text-sm font-medium text-primary">Du hast zugesagt</p>
-                ) : myStatus === "no" ? (
-                  <p className="text-sm font-medium text-text-muted">Du hast abgesagt</p>
-                ) : (
-                  <form action={setRsvp.bind(null, training.id, "yes")}>
-                    <button
-                      type="submit"
-                      className="rounded-md bg-gradient-to-r from-primary-hover to-primary px-3 py-1.5 font-heading text-sm italic font-bold uppercase tracking-wide text-bg shadow-[0_4px_14px_-4px_var(--color-primary)] transition hover:brightness-105"
-                    >
-                      Zusagen
-                    </button>
-                  </form>
-                )}
-              </div>
-            </NextUpCard>
-          );
-        })}
+        {nextTrainings.map((training) => (
+          <NextUpCard
+            key={training.id}
+            href={`/dashboard/trainings/${training.id}`}
+            kicker="Nächstes Training"
+            title={training.title}
+            dateTime={formatDateTime(training.starts_at)}
+            location={training.location}
+            team={training.team}
+          >
+            <div className="mt-3">
+              <RsvpSection
+                myTeam={myTeam}
+                eventTeam={training.team}
+                started={isPast(training.starts_at)}
+                myStatus={myRsvpByTrainingId.get(training.id) ?? null}
+                yesAction={setRsvp.bind(null, training.id, "yes")}
+                noAction={setRsvp.bind(null, training.id, "no")}
+              />
+            </div>
+          </NextUpCard>
+        ))}
 
         {nextEvent && (
           <NextUpCard

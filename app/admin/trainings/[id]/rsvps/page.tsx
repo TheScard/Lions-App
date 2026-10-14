@@ -25,14 +25,16 @@ export default async function TrainingRsvpsPage({ params }: { params: { id: stri
 
   const memberIds = (rsvps ?? []).map((r) => r.member_id);
   const { data: members } = memberIds.length
-    ? await supabase.from("members").select("id, name").in("id", memberIds)
-    : { data: [] as { id: string; name: string }[] };
+    ? await supabase.from("members").select("id, name, team").in("id", memberIds)
+    : { data: [] as { id: string; name: string; team: string | null }[] };
 
-  const nameById = new Map((members ?? []).map((m) => [m.id, m.name]));
+  const memberById = new Map((members ?? []).map((m) => [m.id, m]));
+  // Zaehlt nur Mitglieder, deren Team (noch) zum Trainings-Team passt --
+  // siehe checkRsvpEligibility() in lib/rsvp.ts.
   const byStatus = (status: "yes" | "no") =>
     (rsvps ?? [])
-      .filter((r) => r.status === status)
-      .map((r) => nameById.get(r.member_id) ?? "Unbekannt")
+      .filter((r) => r.status === status && memberById.get(r.member_id)?.team === training.team)
+      .map((r) => memberById.get(r.member_id)?.name ?? "Unbekannt")
       .sort((a, b) => a.localeCompare(b, "de"));
 
   const confirmed = byStatus("yes");

@@ -1,9 +1,11 @@
 import Link from "next/link";
 import { Users } from "lucide-react";
 import { formatDateTime } from "@/lib/format";
+import { isPast } from "@/lib/schedule";
 import { setRsvp } from "@/app/dashboard/trainings/actions";
 import { TeamBadge } from "@/components/TeamBadge";
-import type { Database, RsvpStatus } from "@/types/database";
+import { RsvpSection } from "@/components/RsvpSection";
+import type { Database, RsvpStatus, Team } from "@/types/database";
 
 type Training = Database["public"]["Tables"]["trainings"]["Row"];
 
@@ -11,11 +13,13 @@ export function TrainingCard({
   training,
   yesCount,
   myStatus,
+  myTeam,
   canViewRsvps = false,
 }: {
   training: Training;
   yesCount: number;
   myStatus: RsvpStatus | null;
+  myTeam: Team | null;
   canViewRsvps?: boolean;
 }) {
   return (
@@ -47,31 +51,15 @@ export function TrainingCard({
         </Link>
       )}
 
-      <div className="mt-3 flex items-center gap-2">
-        <form action={setRsvp.bind(null, training.id, "yes")}>
-          <button
-            type="submit"
-            className={`rounded-md px-3 py-1.5 text-sm font-bold uppercase tracking-wide transition ${
-              myStatus === "yes"
-                ? "bg-gradient-to-r from-primary-hover to-primary text-bg shadow-[0_4px_14px_-4px_var(--color-primary)]"
-                : "border border-border text-text-muted hover:border-primary/50 hover:text-text"
-            }`}
-          >
-            Zusagen
-          </button>
-        </form>
-        <form action={setRsvp.bind(null, training.id, "no")}>
-          <button
-            type="submit"
-            className={`rounded-md px-3 py-1.5 text-sm font-bold uppercase tracking-wide transition ${
-              myStatus === "no"
-                ? "border border-danger/40 bg-danger-bg text-danger"
-                : "border border-border text-text-muted hover:border-primary/50 hover:text-text"
-            }`}
-          >
-            Absagen
-          </button>
-        </form>
+      <div className="mt-3">
+        <RsvpSection
+          myTeam={myTeam}
+          eventTeam={training.team}
+          started={isPast(training.starts_at)}
+          myStatus={myStatus}
+          yesAction={setRsvp.bind(null, training.id, "yes")}
+          noAction={setRsvp.bind(null, training.id, "no")}
+        />
       </div>
     </div>
   );

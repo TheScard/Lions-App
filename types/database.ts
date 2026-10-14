@@ -26,6 +26,7 @@ export interface Database {
           team: Team | null;
           avatar_url: string | null;
           must_change_pin: boolean;
+          last_test_push_at: string | null;
           created_at: string;
         },
         {
@@ -36,6 +37,7 @@ export interface Database {
           team?: Team | null;
           avatar_url?: string | null;
           must_change_pin?: boolean;
+          last_test_push_at?: string | null;
           created_at?: string;
         },
         Partial<{
@@ -46,6 +48,7 @@ export interface Database {
           team: Team | null;
           avatar_url: string | null;
           must_change_pin: boolean;
+          last_test_push_at: string | null;
           created_at: string;
         }>
       >;
@@ -118,22 +121,48 @@ export interface Database {
           id: string;
           training_id: string;
           member_id: string;
-          status: RsvpStatus;
+          status: RsvpStatus | null;
           attended: boolean | null;
         },
         {
           id?: string;
           training_id: string;
           member_id: string;
-          status: RsvpStatus;
+          status?: RsvpStatus | null;
           attended?: boolean | null;
         },
         Partial<{
           id: string;
           training_id: string;
           member_id: string;
-          status: RsvpStatus;
+          status: RsvpStatus | null;
           attended: boolean | null;
+        }>
+      >;
+      match_rsvps: Table<
+        {
+          id: string;
+          match_id: string;
+          member_id: string;
+          status: RsvpStatus;
+          created_at: string;
+          updated_at: string;
+        },
+        {
+          id?: string;
+          match_id: string;
+          member_id: string;
+          status: RsvpStatus;
+          created_at?: string;
+          updated_at?: string;
+        },
+        Partial<{
+          id: string;
+          match_id: string;
+          member_id: string;
+          status: RsvpStatus;
+          created_at: string;
+          updated_at: string;
         }>
       >;
       match_attendance: Table<
@@ -255,6 +284,55 @@ export interface Database {
           caption: string | null;
           uploaded_by: string | null;
           created_at: string;
+        }>
+      >;
+      push_subscriptions: Table<
+        {
+          id: string;
+          member_id: string;
+          endpoint: string;
+          p256dh: string;
+          auth: string;
+          user_agent: string | null;
+          created_at: string;
+        },
+        {
+          id?: string;
+          member_id: string;
+          endpoint: string;
+          p256dh: string;
+          auth: string;
+          user_agent?: string | null;
+          created_at?: string;
+        },
+        Partial<{
+          id: string;
+          member_id: string;
+          endpoint: string;
+          p256dh: string;
+          auth: string;
+          user_agent: string | null;
+          created_at: string;
+        }>
+      >;
+      notification_log: Table<
+        {
+          id: string;
+          kind: string;
+          ref_id: string;
+          sent_at: string;
+        },
+        {
+          id?: string;
+          kind: string;
+          ref_id: string;
+          sent_at?: string;
+        },
+        Partial<{
+          id: string;
+          kind: string;
+          ref_id: string;
+          sent_at: string;
         }>
       >;
       board_members: Table<

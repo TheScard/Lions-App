@@ -4,9 +4,12 @@ import { requireSession } from "@/lib/auth/guards";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { formatDateTime, mapsUrl } from "@/lib/format";
 import { isPast } from "@/lib/schedule";
+import { sortAttendanceRows, type AttendanceRow } from "@/lib/attendance";
 import { TeamBadge } from "@/components/TeamBadge";
-import { AttendanceCheckbox } from "@/components/AttendanceCheckbox";
-import { setMatchAttendance } from "@/app/dashboard/matches/actions";
+import { AttendanceEditor } from "@/components/AttendanceEditor";
+import { RsvpSection } from "@/components/RsvpSection";
+import { setMatchRsvp, saveMatchAttendance } from "@/app/dashboard/matches/actions";
+import type { RsvpStatus } from "@/types/database";
 
 export default async function MatchDetailPage({ params }: { params: { id: string } }) {
   const session = await requireSession();
@@ -21,23 +24,60 @@ export default async function MatchDetailPage({ params }: { params: { id: string
     notFound();
   }
 
+  const { data: me } = await supabase
+    .from("members")
+    .select("team")
+    .eq("id", session.memberId)
+    .maybeSingle();
+  const myTeam = me?.team ?? null;
+
+  const { data: rsvps } = await supabase
+    .from("match_rsvps")
+    .select("member_id, status")
+    .eq("match_id", params.id);
+
+  // Zusagen-Liste zaehlt nur Mitglieder, deren Team (noch) zum Spiel-Team
+  // passt -- Abstimmungen anderer Mitglieder werden ignoriert, aber nicht
+  // geloescht (siehe checkRsvpEligibility() in lib/rsvp.ts).
+  const yesMemberIdsRaw = (rsvps ?? []).filter((r) => r.status === "yes").map((r) => r.member_id);
+  const { data: yesMembersRaw } = yesMemberIdsRaw.length
+    ? await supabase.from("members").select("id, name, team").in("id", yesMemberIdsRaw)
+    : { data: [] as { id: string; name: string; team: string | null }[] };
+  const yesNames = (yesMembersRaw ?? [])
+    .filter((m) => m.team === match.team)
+    .map((m) => m.name)
+    .sort((a, b) => a.localeCompare(b, "de"));
+
+  const myStatus = (rsvps ?? []).find((r) => r.member_id === session.memberId)?.status as
+    | RsvpStatus
+    | undefined;
+  const matchStarted = isPast(match.starts_at);
+
   const canManage =
     session.role === "admin" || session.role === "vorstand" || session.role === "coach";
 
-  let teamAttendance: { memberId: string; name: string; attended: boolean }[] = [];
+  let teamRows: AttendanceRow[] = [];
+  let otherRows: AttendanceRow[] = [];
   let myAttended = false;
 
-  if (canManage) {
-    const [{ data: teamMembers }, { data: attendance }] = await Promise.all([
-      supabase.from("members").select("id, name").eq("team", match.team),
-      supabase.from("match_attendance").select("member_id").eq("match_id", params.id),
+  if (canManage && matchStarted) {
+    const statusByMember = new Map((rsvps ?? []).map((r) => [r.member_id, r.status as RsvpStatus]));
+    const [{ data: allMembers }, { data: attendance }] = await Promise.all([
+      supabase.from("members").select("id, name, team"),
+      supabase.from("match_attendance").select("member_id, attended").eq("match_id", params.id),
     ]);
 
-    const attendedMemberIds = new Set((attendance ?? []).map((a) => a.member_id));
-    teamAttendance = (teamMembers ?? [])
-      .map((m) => ({ memberId: m.id, name: m.name, attended: attendedMemberIds.has(m.id) }))
-      .sort((a, b) => a.name.localeCompare(b.name, "de"));
-  } else {
+    const attendedByMember = new Map((attendance ?? []).map((a) => [a.member_id, a.attended]));
+    const toRow = (m: { id: string; name: string }): AttendanceRow => ({
+      memberId: m.id,
+      name: m.name,
+      rsvpStatus: statusByMember.get(m.id) ?? null,
+      attended: attendedByMember.get(m.id) ?? statusByMember.get(m.id) === "yes",
+    });
+
+    teamRows = sortAttendanceRows((allMembers ?? []).filter((m) => m.team === match.team).map(toRow));
+    otherRows = sortAttendanceRows((allMembers ?? []).filter((m) => m.team !== match.team).map(toRow));
+  } else if (!canManage) {
     const { data: myAttendance } = await supabase
       .from("match_attendance")
       .select("member_id")
@@ -82,26 +122,46 @@ export default async function MatchDetailPage({ params }: { params: { id: string
         </div>
       )}
 
-      {canManage && (
-        <div className="rounded-xl border border-border bg-surface p-4">
-          <p className="text-xs uppercase tracking-wide text-text-muted">Teilnahme erfassen</p>
-          {teamAttendance.length === 0 ? (
-            <p className="mt-2 text-sm text-text-muted">Diesem Team sind noch keine Mitglieder zugewiesen.</p>
-          ) : (
-            <div className="mt-2 flex flex-col gap-2">
-              {teamAttendance.map((row) => (
-                <div key={row.memberId} className="flex items-center justify-between gap-2">
-                  <p className="text-sm text-text">{row.name}</p>
-                  <AttendanceCheckbox
-                    checked={row.attended}
-                    onToggle={setMatchAttendance.bind(null, match.id, row.memberId)}
-                    label="hat teilgenommen"
-                  />
-                </div>
-              ))}
-            </div>
-          )}
+      <div className="rounded-xl border border-border bg-surface p-4">
+        <p className="text-xs uppercase tracking-wide text-text-muted">
+          Zusagen ({yesNames.length})
+        </p>
+        {yesNames.length === 0 ? (
+          <p className="mt-1 text-sm text-text-muted">Noch keine Zusagen.</p>
+        ) : (
+          <ul className="mt-2 list-inside list-disc text-sm text-text">
+            {yesNames.map((name) => (
+              <li key={name}>{name}</li>
+            ))}
+          </ul>
+        )}
+        <div className="mt-3">
+          <RsvpSection
+            myTeam={myTeam}
+            eventTeam={match.team}
+            started={matchStarted}
+            myStatus={myStatus ?? null}
+            yesAction={setMatchRsvp.bind(null, match.id, "yes")}
+            noAction={setMatchRsvp.bind(null, match.id, "no")}
+          />
         </div>
+      </div>
+
+      {canManage && matchStarted && (
+        <div className="rounded-xl border border-border bg-surface p-4">
+          <p className="mb-3 text-xs uppercase tracking-wide text-text-muted">Teilnahme erfassen</p>
+          <AttendanceEditor
+            rows={teamRows}
+            extraRows={otherRows}
+            saveAction={saveMatchAttendance.bind(null, match.id)}
+          />
+        </div>
+      )}
+
+      {canManage && !matchStarted && (
+        <p className="rounded-xl border border-dashed border-border bg-surface p-4 text-sm text-text-muted">
+          Die Teilnahme kann erst nach Spielbeginn erfasst werden.
+        </p>
       )}
 
       <Link

@@ -4,7 +4,9 @@ import { useRouter } from "next/navigation";
 import { formatDateTime, mapsUrl } from "@/lib/format";
 import { isPast } from "@/lib/schedule";
 import { TeamBadge } from "@/components/TeamBadge";
-import type { Database } from "@/types/database";
+import { RsvpSection } from "@/components/RsvpSection";
+import { setMatchRsvp } from "@/app/dashboard/matches/actions";
+import type { Database, RsvpStatus, Team } from "@/types/database";
 
 type Match = Database["public"]["Tables"]["matches"]["Row"];
 
@@ -12,9 +14,20 @@ type Match = Database["public"]["Tables"]["matches"]["Row"];
 // Maps) ist -- verschachtelte <a>-Elemente sind ungueltiges HTML. Die Karte
 // navigiert stattdessen per Klick/Enter, der Maps-Link stoppt die
 // Propagation, damit er die Karten-Navigation nicht mit ausloest.
-export function MatchCard({ match }: { match: Match }) {
+export function MatchCard({
+  match,
+  yesCount,
+  myStatus,
+  myTeam,
+}: {
+  match: Match;
+  yesCount: number;
+  myStatus: RsvpStatus | null;
+  myTeam: Team | null;
+}) {
   const router = useRouter();
   const href = `/dashboard/matches/${match.id}`;
+  const upcoming = !isPast(match.starts_at);
 
   return (
     <div
@@ -51,6 +64,22 @@ export function MatchCard({ match }: { match: Match }) {
         <p className="mt-2 inline-block rounded-full border border-primary/40 bg-gradient-to-r from-primary/25 to-primary/5 px-2 py-0.5 text-xs font-bold uppercase tracking-wide text-primary shadow-[0_0_10px_-4px_var(--color-primary)]">
           Ergebnis: {match.result}
         </p>
+      )}
+
+      {upcoming && (
+        <>
+          <p className="mt-1 text-sm text-text-muted">{yesCount} Zusagen</p>
+          <div className="mt-3" onClick={(event) => event.stopPropagation()}>
+            <RsvpSection
+              myTeam={myTeam}
+              eventTeam={match.team}
+              started={false}
+              myStatus={myStatus}
+              yesAction={setMatchRsvp.bind(null, match.id, "yes")}
+              noAction={setMatchRsvp.bind(null, match.id, "no")}
+            />
+          </div>
+        </>
       )}
     </div>
   );

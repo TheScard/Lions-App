@@ -7,9 +7,15 @@ import { TeamBadge } from "@/components/TeamBadge";
 
 export default async function AdminTrainingsPage() {
   const supabase = await createServerSupabaseClient();
+  // Bereits stattgefundene Trainings werden hier nicht mehr angezeigt --
+  // Bearbeiten/Loeschen gilt nur fuer anstehende Trainings. Die
+  // nachtraegliche Teilnahme-Erfassung vergangener Trainings laeuft
+  // ausschliesslich ueber den Bereich "Vergangen -- Teilnahme erfassen" in
+  // /dashboard/trainings.
   const { data: trainings } = await supabase
     .from("trainings")
     .select("*")
+    .gte("starts_at", new Date().toISOString())
     .order("starts_at", { ascending: true });
 
   const rows = trainings ?? [];
