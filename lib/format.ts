@@ -12,6 +12,11 @@ export function formatDateTime(iso: string): string {
   }).format(new Date(iso));
 }
 
+// Fuer Push-Benachrichtigungstexte, z.B. "Sa., 17.10.2026, 18:00 Uhr".
+export function formatPushDateTime(iso: string): string {
+  return `${formatDateTime(iso)} Uhr`;
+}
+
 export function mapsUrl(address: string): string {
   return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(address)}`;
 }

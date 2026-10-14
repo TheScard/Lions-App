@@ -1,6 +1,6 @@
 import Image from "next/image";
 import Link from "next/link";
-import { FileText, KeyRound, Settings } from "lucide-react";
+import { Bell, FileText, KeyRound, Settings } from "lucide-react";
 import { redirect } from "next/navigation";
 import { getSession } from "@/lib/auth/session";
 import { BottomNav } from "@/components/BottomNav";
@@ -34,6 +34,13 @@ export default async function DashboardLayout({ children }: { children: React.Re
           </div>
         </div>
         <div className="flex items-center gap-1">
+          <Link
+            href="/dashboard/benachrichtigungen"
+            aria-label="Benachrichtigungen"
+            className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-sm font-medium text-text-muted transition hover:bg-surface-2 hover:text-primary"
+          >
+            <Bell size={18} />
+          </Link>
           <Link
             href="/dashboard/documents"
             aria-label="Dokumente"

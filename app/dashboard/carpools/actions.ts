@@ -3,7 +3,10 @@
 import { redirect } from "next/navigation";
 import { requireSession } from "@/lib/auth/guards";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { parseLocalInputAsUtc } from "@/lib/timezone";
+import { formatPushDateTime } from "@/lib/format";
+import { sendPush, getTeamMemberIds } from "@/lib/push";
 
 export interface CarpoolFormState {
   error?: string;
@@ -42,8 +45,8 @@ export async function createCarpool(
     return { error: "Ungueltiges Datum/Uhrzeit." };
   }
 
-  const supabase = await createServerSupabaseClient();
-  const { error } = await supabase.from("carpools").insert({
+  const admin = createAdminClient();
+  const { error } = await admin.from("carpools").insert({
     match_id: matchId || null,
     driver_id: session.memberId,
     total_seats: totalSeats,
@@ -53,6 +56,27 @@ export async function createCarpool(
 
   if (error) {
     return { error: "Speichern fehlgeschlagen: " + error.message };
+  }
+
+  // Nur Fahrten zu einem Spiel lösen eine Push aus -- Fahrten ohne Bezug
+  // (match_id leer) haben kein Team, an das sich sinnvoll benachrichtigen
+  // liesse.
+  if (matchId) {
+    const { data: match } = await admin
+      .from("matches")
+      .select("title, team")
+      .eq("id", matchId)
+      .maybeSingle();
+
+    if (match) {
+      const recipientIds = await getTeamMemberIds(match.team, session.memberId);
+      await sendPush({
+        memberIds: recipientIds,
+        title: `Neue Fahrgemeinschaft: ${match.title}`,
+        body: `${session.name} fährt ${formatPushDateTime(departureTime.toISOString())} ab ${departurePoint}, ${totalSeats} Plätze. Trag dich jetzt ein!`,
+        path: `/dashboard/carpools?match_id=${matchId}`,
+      });
+    }
   }
 
   redirect(redirectTargetFor(matchId || null));

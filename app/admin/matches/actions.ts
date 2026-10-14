@@ -3,8 +3,10 @@
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { requireRole } from "@/lib/auth/guards";
-import { createServerSupabaseClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { parseLocalInputAsUtc } from "@/lib/timezone";
+import { formatPushDateTime } from "@/lib/format";
+import { sendPush, getTeamMemberIds } from "@/lib/push";
 import type { Team } from "@/types/database";
 
 export interface MatchFormState {
@@ -62,14 +64,25 @@ export async function createMatch(
   const parsed = parseMatchForm(formData);
   if ("error" in parsed) return { error: parsed.error };
 
-  const supabase = await createServerSupabaseClient();
-  const { error } = await supabase.from("matches").insert({
-    ...parsed.data,
-    created_by: session.memberId,
-  });
+  const admin = createAdminClient();
+  const { data: inserted, error } = await admin
+    .from("matches")
+    .insert({ ...parsed.data, created_by: session.memberId })
+    .select("id")
+    .single();
 
-  if (error) {
-    return { error: "Speichern fehlgeschlagen: " + error.message };
+  if (error || !inserted) {
+    return { error: "Speichern fehlgeschlagen: " + (error?.message ?? "unbekannter Fehler") };
+  }
+
+  if (new Date(parsed.data.starts_at).getTime() > Date.now()) {
+    const recipientIds = await getTeamMemberIds(parsed.data.team, session.memberId);
+    await sendPush({
+      memberIds: recipientIds,
+      title: `Neues Spiel: ${parsed.data.title}`,
+      body: `${formatPushDateTime(parsed.data.starts_at)} · ${parsed.data.location_name}`,
+      path: `/dashboard/matches/${inserted.id}`,
+    });
   }
 
   redirect("/admin/matches");
@@ -80,16 +93,58 @@ export async function updateMatch(
   _prevState: MatchFormState,
   formData: FormData
 ): Promise<MatchFormState> {
-  await requireRole(["admin", "vorstand", "coach"]);
+  const session = await requireRole(["admin", "vorstand", "coach"]);
 
   const parsed = parseMatchForm(formData);
   if ("error" in parsed) return { error: parsed.error };
 
-  const supabase = await createServerSupabaseClient();
-  const { error } = await supabase.from("matches").update(parsed.data).eq("id", id);
+  const admin = createAdminClient();
+  const { data: before } = await admin
+    .from("matches")
+    .select("title, location_name, location_address, starts_at, team")
+    .eq("id", id)
+    .maybeSingle();
+
+  const { error } = await admin.from("matches").update(parsed.data).eq("id", id);
 
   if (error) {
     return { error: "Speichern fehlgeschlagen: " + error.message };
+  }
+
+  if (before) {
+    const timeChanged = before.starts_at !== parsed.data.starts_at;
+    const detailsChanged =
+      before.title !== parsed.data.title ||
+      before.location_name !== parsed.data.location_name ||
+      before.location_address !== parsed.data.location_address ||
+      before.team !== parsed.data.team;
+    const willBeFuture = new Date(parsed.data.starts_at).getTime() > Date.now();
+
+    // Verschiebt sich der Termin, verfaellt die 96h-Vorab-Erinnerung fuer
+    // den alten Zeitpunkt -- sie wird beim naechsten Cron-Lauf fuer den
+    // neuen Zeitpunkt neu eingeplant (siehe app/api/cron/reminders).
+    if (timeChanged) {
+      await admin.from("notification_log").delete().eq("kind", "match_96h").eq("ref_id", id);
+    }
+
+    if (willBeFuture && (timeChanged || detailsChanged)) {
+      const recipientIds = await getTeamMemberIds(parsed.data.team, session.memberId);
+      if (timeChanged) {
+        await sendPush({
+          memberIds: recipientIds,
+          title: `Spiel verschoben: ${parsed.data.title}`,
+          body: `Neuer Termin: ${formatPushDateTime(parsed.data.starts_at)} (vorher: ${formatPushDateTime(before.starts_at)})`,
+          path: `/dashboard/matches/${id}`,
+        });
+      } else {
+        await sendPush({
+          memberIds: recipientIds,
+          title: `Spiel geändert: ${parsed.data.title}`,
+          body: "Bitte Details prüfen.",
+          path: `/dashboard/matches/${id}`,
+        });
+      }
+    }
   }
 
   redirect("/admin/matches");
@@ -97,8 +152,8 @@ export async function updateMatch(
 
 export async function deleteMatch(id: string): Promise<void> {
   await requireRole(["admin", "vorstand", "coach"]);
-  const supabase = await createServerSupabaseClient();
-  await supabase.from("matches").delete().eq("id", id);
+  const admin = createAdminClient();
+  await admin.from("matches").delete().eq("id", id);
 
   // Diese Action redirected nicht (bleibt auf /admin/matches) -- ohne
   // revalidatePath wuerde Next.js sonst die gecachten Daten von vor dem

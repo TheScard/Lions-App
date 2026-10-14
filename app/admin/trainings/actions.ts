@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { requireRole } from "@/lib/auth/guards";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { addWeeksToLocalInputValue, parseLocalInputAsUtc } from "@/lib/timezone";
 import type { Team } from "@/types/database";
 
@@ -111,15 +112,30 @@ export async function updateTraining(
   const parsed = parseTrainingBaseForm(formData);
   if ("error" in parsed) return { error: parsed.error };
   const { title, location, team, startsAtDate } = parsed.data;
+  const startsAtIso = startsAtDate.toISOString();
 
   const supabase = await createServerSupabaseClient();
+  const { data: before } = await supabase
+    .from("trainings")
+    .select("starts_at")
+    .eq("id", id)
+    .maybeSingle();
+
   const { error } = await supabase
     .from("trainings")
-    .update({ title, location, team, starts_at: startsAtDate.toISOString() })
+    .update({ title, location, team, starts_at: startsAtIso })
     .eq("id", id);
 
   if (error) {
     return { error: "Speichern fehlgeschlagen: " + error.message };
+  }
+
+  // Verschiebt sich der Termin, verfaellt die 24h-Vorab-Erinnerung fuer den
+  // alten Zeitpunkt -- sie wird beim naechsten Cron-Lauf fuer den neuen
+  // Zeitpunkt neu eingeplant (siehe app/api/cron/reminders).
+  if (before && before.starts_at !== startsAtIso) {
+    const admin = createAdminClient();
+    await admin.from("notification_log").delete().eq("kind", "training_24h").eq("ref_id", id);
   }
 
   redirect("/admin/trainings");
