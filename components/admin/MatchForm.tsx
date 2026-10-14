@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useFormState, useFormStatus } from "react-dom";
 import type { MatchFormState } from "@/app/admin/matches/actions";
 import { parseLocalInputAsUtc, toLocalInputValue } from "@/lib/timezone";
+import { DEFAULT_MIN_MATCH } from "@/lib/config";
 import type { Team } from "@/types/database";
 
 interface MatchFormValues {
@@ -13,6 +14,7 @@ interface MatchFormValues {
   starts_at: string; // ISO
   result: string | null;
   team: Team;
+  min_participants?: number | null;
 }
 
 function SubmitButton({ label }: { label: string }) {
@@ -137,6 +139,24 @@ export function MatchForm({
             Ergebnis kann erst nach dem Spieltermin eingetragen werden.
           </p>
         )}
+      </div>
+
+      <div className="flex flex-col gap-1.5">
+        <label htmlFor="min_participants" className="text-sm font-medium text-text">
+          Mindestanzahl Zusagen (optional)
+        </label>
+        <input
+          id="min_participants"
+          name="min_participants"
+          type="number"
+          min={1}
+          max={30}
+          step={1}
+          defaultValue={
+            initialValues ? initialValues.min_participants ?? "" : DEFAULT_MIN_MATCH
+          }
+          className="appearance-none rounded-lg border border-border bg-surface-2 px-3 py-2.5 text-text outline-none placeholder:text-text-muted focus:border-primary focus:ring-1 focus:ring-primary"
+        />
       </div>
 
       {state.error && <p className="text-sm text-danger">{state.error}</p>}

@@ -68,6 +68,9 @@ export default async function MatchesPage() {
     }
   }
 
+  const canSeeMin =
+    session.role === "admin" || session.role === "vorstand" || session.role === "coach";
+
   return (
     <div className="flex flex-col gap-6">
       <h1 className="text-3xl text-text">Kalender</h1>
@@ -84,6 +87,7 @@ export default async function MatchesPage() {
               yesCount={yesCountByMatch.get(match.id) ?? 0}
               myStatus={myStatusByMatch.get(match.id) ?? null}
               myTeam={myTeam}
+              canSeeMin={canSeeMin}
             />
           ))
         )}

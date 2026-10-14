@@ -5,6 +5,7 @@ import { isPast } from "@/lib/schedule";
 import { setRsvp } from "@/app/dashboard/trainings/actions";
 import { TeamBadge } from "@/components/TeamBadge";
 import { RsvpSection } from "@/components/RsvpSection";
+import { RsvpCount } from "@/components/RsvpCount";
 import type { Database, RsvpStatus, Team } from "@/types/database";
 
 type Training = Database["public"]["Tables"]["trainings"]["Row"];
@@ -39,7 +40,14 @@ export function TrainingCard({
       </div>
       <p className="mt-1 text-sm text-text-muted">{formatDateTime(training.starts_at)}</p>
       {training.location && <p className="mt-1 text-sm text-text-muted">{training.location}</p>}
-      <p className="mt-1 text-sm text-text-muted">{yesCount} Zusagen</p>
+      <div className="mt-1">
+        <RsvpCount
+          count={yesCount}
+          min={training.min_participants}
+          canSeeMin={canViewRsvps}
+          isFuture={!isPast(training.starts_at)}
+        />
+      </div>
 
       {canViewRsvps && (
         <Link

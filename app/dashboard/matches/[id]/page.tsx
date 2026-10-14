@@ -8,7 +8,10 @@ import { sortAttendanceRows, type AttendanceRow } from "@/lib/attendance";
 import { TeamBadge } from "@/components/TeamBadge";
 import { AttendanceEditor } from "@/components/AttendanceEditor";
 import { RsvpSection } from "@/components/RsvpSection";
+import { RsvpCount } from "@/components/RsvpCount";
+import { NudgeButton } from "@/components/NudgeButton";
 import { setMatchRsvp, saveMatchAttendance } from "@/app/dashboard/matches/actions";
+import { nudgeMatch } from "@/app/admin/matches/actions";
 import type { RsvpStatus } from "@/types/database";
 
 export default async function MatchDetailPage({ params }: { params: { id: string } }) {
@@ -123,9 +126,12 @@ export default async function MatchDetailPage({ params }: { params: { id: string
       )}
 
       <div className="rounded-xl border border-border bg-surface p-4">
-        <p className="text-xs uppercase tracking-wide text-text-muted">
-          Zusagen ({yesNames.length})
-        </p>
+        <RsvpCount
+          count={yesNames.length}
+          min={match.min_participants}
+          canSeeMin={canManage}
+          isFuture={!matchStarted}
+        />
         {yesNames.length === 0 ? (
           <p className="mt-1 text-sm text-text-muted">Noch keine Zusagen.</p>
         ) : (
@@ -145,6 +151,20 @@ export default async function MatchDetailPage({ params }: { params: { id: string
             noAction={setMatchRsvp.bind(null, match.id, "no")}
           />
         </div>
+
+        {canManage &&
+          !matchStarted &&
+          match.min_participants !== null &&
+          yesNames.length < match.min_participants && (
+            <div className="mt-3 border-t border-border pt-3">
+              <NudgeButton action={nudgeMatch.bind(null, match.id)} />
+              {match.last_nudge_at && (
+                <p className="mt-1 text-xs text-text-muted">
+                  Zuletzt nachgehakt: {formatDateTime(match.last_nudge_at)}
+                </p>
+              )}
+            </div>
+          )}
       </div>
 
       {canManage && matchStarted && (

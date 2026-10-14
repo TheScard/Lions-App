@@ -5,6 +5,7 @@ import { formatDateTime, mapsUrl } from "@/lib/format";
 import { isPast } from "@/lib/schedule";
 import { TeamBadge } from "@/components/TeamBadge";
 import { RsvpSection } from "@/components/RsvpSection";
+import { RsvpCount } from "@/components/RsvpCount";
 import { setMatchRsvp } from "@/app/dashboard/matches/actions";
 import type { Database, RsvpStatus, Team } from "@/types/database";
 
@@ -19,11 +20,13 @@ export function MatchCard({
   yesCount,
   myStatus,
   myTeam,
+  canSeeMin = false,
 }: {
   match: Match;
   yesCount: number;
   myStatus: RsvpStatus | null;
   myTeam: Team | null;
+  canSeeMin?: boolean;
 }) {
   const router = useRouter();
   const href = `/dashboard/matches/${match.id}`;
@@ -68,7 +71,14 @@ export function MatchCard({
 
       {upcoming && (
         <>
-          <p className="mt-1 text-sm text-text-muted">{yesCount} Zusagen</p>
+          <div className="mt-1">
+            <RsvpCount
+              count={yesCount}
+              min={match.min_participants}
+              canSeeMin={canSeeMin}
+              isFuture={upcoming}
+            />
+          </div>
           <div className="mt-3" onClick={(event) => event.stopPropagation()}>
             <RsvpSection
               myTeam={myTeam}

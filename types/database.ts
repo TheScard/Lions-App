@@ -27,6 +27,7 @@ export interface Database {
           avatar_url: string | null;
           must_change_pin: boolean;
           last_test_push_at: string | null;
+          onboarding_completed_at: string | null;
           created_at: string;
         },
         {
@@ -38,6 +39,7 @@ export interface Database {
           avatar_url?: string | null;
           must_change_pin?: boolean;
           last_test_push_at?: string | null;
+          onboarding_completed_at?: string | null;
           created_at?: string;
         },
         Partial<{
@@ -49,6 +51,7 @@ export interface Database {
           avatar_url: string | null;
           must_change_pin: boolean;
           last_test_push_at: string | null;
+          onboarding_completed_at: string | null;
           created_at: string;
         }>
       >;
@@ -61,6 +64,8 @@ export interface Database {
           starts_at: string;
           result: string | null;
           team: Team;
+          min_participants: number | null;
+          last_nudge_at: string | null;
           created_by: string | null;
           created_at: string;
         },
@@ -72,6 +77,8 @@ export interface Database {
           starts_at: string;
           result?: string | null;
           team: Team;
+          min_participants?: number | null;
+          last_nudge_at?: string | null;
           created_by?: string | null;
           created_at?: string;
         },
@@ -83,6 +90,8 @@ export interface Database {
           starts_at: string;
           result: string | null;
           team: Team;
+          min_participants: number | null;
+          last_nudge_at: string | null;
           created_by: string | null;
           created_at: string;
         }>
@@ -95,6 +104,8 @@ export interface Database {
           location: string | null;
           team: Team;
           series_id: string | null;
+          min_participants: number | null;
+          last_nudge_at: string | null;
           created_at: string;
         },
         {
@@ -104,6 +115,8 @@ export interface Database {
           location?: string | null;
           team: Team;
           series_id?: string | null;
+          min_participants?: number | null;
+          last_nudge_at?: string | null;
           created_at?: string;
         },
         Partial<{
@@ -113,6 +126,8 @@ export interface Database {
           location: string | null;
           team: Team;
           series_id: string | null;
+          min_participants: number | null;
+          last_nudge_at: string | null;
           created_at: string;
         }>
       >;

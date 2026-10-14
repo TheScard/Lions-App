@@ -3,6 +3,7 @@
 import { useFormState, useFormStatus } from "react-dom";
 import type { TrainingFormState } from "@/app/admin/trainings/actions";
 import { toLocalInputValue } from "@/lib/timezone";
+import { DEFAULT_MIN_TRAINING } from "@/lib/config";
 import type { Team } from "@/types/database";
 
 interface TrainingFormValues {
@@ -10,6 +11,7 @@ interface TrainingFormValues {
   location: string | null;
   starts_at: string; // ISO
   team: Team;
+  min_participants?: number | null;
 }
 
 function SubmitButton({ label }: { label: string }) {
@@ -91,6 +93,26 @@ export function TrainingForm({
           type="datetime-local"
           required
           defaultValue={toLocalInputValue(initialValues?.starts_at)}
+          className="appearance-none rounded-lg border border-border bg-surface-2 px-3 py-2.5 text-text outline-none placeholder:text-text-muted focus:border-primary focus:ring-1 focus:ring-primary"
+        />
+      </div>
+
+      <div className="flex flex-col gap-1.5">
+        <label htmlFor="min_participants" className="text-sm font-medium text-text">
+          Mindestanzahl Zusagen (optional)
+        </label>
+        <input
+          id="min_participants"
+          name="min_participants"
+          type="number"
+          min={1}
+          max={30}
+          step={1}
+          defaultValue={
+            initialValues
+              ? initialValues.min_participants ?? ""
+              : DEFAULT_MIN_TRAINING
+          }
           className="appearance-none rounded-lg border border-border bg-surface-2 px-3 py-2.5 text-text outline-none placeholder:text-text-muted focus:border-primary focus:ring-1 focus:ring-primary"
         />
       </div>

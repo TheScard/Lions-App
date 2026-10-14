@@ -7,6 +7,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { parseLocalInputAsUtc } from "@/lib/timezone";
 import { formatPushDateTime } from "@/lib/format";
 import { sendPush, getTeamMemberIds } from "@/lib/push";
+import { parseMinParticipants } from "@/lib/config";
 import type { Team } from "@/types/database";
 
 export interface MatchFormState {
@@ -38,6 +39,12 @@ function parseMatchForm(formData: FormData) {
     return { error: "Ungueltiges Datum/Uhrzeit." } as const;
   }
 
+  const minParticipantsRaw = String(formData.get("min_participants") ?? "");
+  const minParticipantsParsed = parseMinParticipants(minParticipantsRaw);
+  if ("error" in minParticipantsParsed) {
+    return { error: minParticipantsParsed.error } as const;
+  }
+
   // Ergebnis darf nur fuer bereits stattgefundene Spiele gespeichert werden.
   // Wird trotz deaktiviertem/ausgeblendetem Formularfeld dennoch ein Wert
   // uebermittelt (z.B. durch clientseitiges Umgehen), wird er hier verworfen.
@@ -51,6 +58,7 @@ function parseMatchForm(formData: FormData) {
       starts_at: startsAtDate.toISOString(),
       result: isPast ? result || null : null,
       team: team as Team,
+      min_participants: minParticipantsParsed.value,
     },
   } as const;
 }
@@ -160,4 +168,84 @@ export async function deleteMatch(id: string): Promise<void> {
   // Loeschen weiterzeigen.
   revalidatePath("/admin/matches");
   revalidatePath("/dashboard/matches");
+}
+
+export interface NudgeResult {
+  error?: string;
+  message?: string;
+}
+
+const NUDGE_COOLDOWN_MS = 3 * 60 * 60 * 1000;
+
+/**
+ * "Nachhaken": sendet eine Push an alle Mitglieder des Spiel-Teams, die
+ * noch NICHT abgestimmt haben (kein match_rsvps-Eintrag mit status, egal
+ * ob yes oder no), nie an die auslösende Person. Prueft Rolle, Zukunft des
+ * Termins, gesetztes und noch nicht erreichtes Minimum, sowie ein
+ * Rate-Limit von 3h ueber matches.last_nudge_at selbst -- nicht nur die UI
+ * blendet den Button aus.
+ */
+export async function nudgeMatch(matchId: string): Promise<NudgeResult> {
+  const session = await requireRole(["admin", "vorstand", "coach"]);
+  const admin = createAdminClient();
+
+  const { data: match } = await admin
+    .from("matches")
+    .select("title, starts_at, team, min_participants, last_nudge_at")
+    .eq("id", matchId)
+    .maybeSingle();
+
+  if (!match) {
+    return { error: "Spiel nicht gefunden." };
+  }
+  if (new Date(match.starts_at).getTime() < Date.now()) {
+    return { error: "Der Termin liegt in der Vergangenheit." };
+  }
+  if (!match.min_participants) {
+    return { error: "Für dieses Spiel ist kein Minimum gesetzt." };
+  }
+  if (match.last_nudge_at) {
+    const elapsedMs = Date.now() - new Date(match.last_nudge_at).getTime();
+    if (elapsedMs < NUDGE_COOLDOWN_MS) {
+      return { error: "Es wurde erst vor kurzem nachgehakt, bitte später erneut." };
+    }
+  }
+
+  const [{ data: rsvps }, { data: teamMembers }] = await Promise.all([
+    admin.from("match_rsvps").select("member_id, status").eq("match_id", matchId),
+    admin.from("members").select("id").eq("team", match.team),
+  ]);
+
+  const teamMemberIds = new Set((teamMembers ?? []).map((m) => m.id));
+  const yesCount = (rsvps ?? []).filter(
+    (r) => r.status === "yes" && teamMemberIds.has(r.member_id)
+  ).length;
+
+  if (yesCount >= match.min_participants) {
+    return { error: "Die Mindestanzahl wurde bereits erreicht." };
+  }
+
+  const votedIds = new Set(
+    (rsvps ?? []).filter((r) => teamMemberIds.has(r.member_id)).map((r) => r.member_id)
+  );
+  const recipientIds = Array.from(teamMemberIds).filter(
+    (id) => !votedIds.has(id) && id !== session.memberId
+  );
+
+  await admin.from("matches").update({ last_nudge_at: new Date().toISOString() }).eq("id", matchId);
+
+  revalidatePath(`/dashboard/matches/${matchId}`);
+
+  if (recipientIds.length === 0) {
+    return { message: "Alle haben schon abgestimmt." };
+  }
+
+  await sendPush({
+    memberIds: recipientIds,
+    title: `Wir brauchen dich: ${match.title}`,
+    body: `Bisher ${yesCount} von mindestens ${match.min_participants} Zusagen. Bist du dabei? ${formatPushDateTime(match.starts_at)}`,
+    path: `/dashboard/matches/${matchId}`,
+  });
+
+  return { message: `Erinnerung an ${recipientIds.length} Mitglieder gesendet` };
 }

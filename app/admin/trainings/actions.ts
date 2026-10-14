@@ -4,16 +4,24 @@ import { randomUUID } from "node:crypto";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { requireRole } from "@/lib/auth/guards";
-import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { addWeeksToLocalInputValue, parseLocalInputAsUtc } from "@/lib/timezone";
+import { formatPushDateTime } from "@/lib/format";
+import { sendPush } from "@/lib/push";
+import { parseMinParticipants } from "@/lib/config";
 import type { Team } from "@/types/database";
 
 export interface TrainingFormState {
   error?: string;
 }
 
+export interface NudgeResult {
+  error?: string;
+  message?: string;
+}
+
 const VALID_TEAMS: Team[] = ["herren", "u16"];
+const NUDGE_COOLDOWN_MS = 3 * 60 * 60 * 1000;
 
 // Sicherheitsgrenze gegen ein versehentlich sehr weit in der Zukunft
 // liegendes "Wiederholen bis"-Datum (~2 Jahre bei woechentlicher Serie).
@@ -37,11 +45,18 @@ function parseTrainingBaseForm(formData: FormData) {
     return { error: "Ungueltiges Datum/Uhrzeit." } as const;
   }
 
+  const minParticipantsRaw = String(formData.get("min_participants") ?? "");
+  const minParticipantsParsed = parseMinParticipants(minParticipantsRaw);
+  if ("error" in minParticipantsParsed) {
+    return { error: minParticipantsParsed.error } as const;
+  }
+
   return {
     data: {
       title,
       location: location || null,
       team: team as Team,
+      min_participants: minParticipantsParsed.value,
       startsAtLocal,
       startsAtDate,
     },
@@ -56,7 +71,7 @@ export async function createTraining(
 
   const parsed = parseTrainingBaseForm(formData);
   if ("error" in parsed) return { error: parsed.error };
-  const { title, location, team, startsAtLocal } = parsed.data;
+  const { title, location, team, min_participants, startsAtLocal } = parsed.data;
 
   // Neu angelegte Trainings wiederholen sich automatisch woechentlich bis
   // zum optionalen "Wiederholen bis"-Datum. Jede Instanz ist danach eine
@@ -88,12 +103,13 @@ export async function createTraining(
     title,
     location,
     team,
+    min_participants,
     series_id: seriesId,
     starts_at: parseLocalInputAsUtc(local).toISOString(),
   }));
 
-  const supabase = await createServerSupabaseClient();
-  const { error } = await supabase.from("trainings").insert(rows);
+  const admin = createAdminClient();
+  const { error } = await admin.from("trainings").insert(rows);
 
   if (error) {
     return { error: "Speichern fehlgeschlagen: " + error.message };
@@ -111,19 +127,19 @@ export async function updateTraining(
 
   const parsed = parseTrainingBaseForm(formData);
   if ("error" in parsed) return { error: parsed.error };
-  const { title, location, team, startsAtDate } = parsed.data;
+  const { title, location, team, min_participants, startsAtDate } = parsed.data;
   const startsAtIso = startsAtDate.toISOString();
 
-  const supabase = await createServerSupabaseClient();
-  const { data: before } = await supabase
+  const admin = createAdminClient();
+  const { data: before } = await admin
     .from("trainings")
     .select("starts_at")
     .eq("id", id)
     .maybeSingle();
 
-  const { error } = await supabase
+  const { error } = await admin
     .from("trainings")
-    .update({ title, location, team, starts_at: startsAtIso })
+    .update({ title, location, team, min_participants, starts_at: startsAtIso })
     .eq("id", id);
 
   if (error) {
@@ -134,7 +150,6 @@ export async function updateTraining(
   // alten Zeitpunkt -- sie wird beim naechsten Cron-Lauf fuer den neuen
   // Zeitpunkt neu eingeplant (siehe app/api/cron/reminders).
   if (before && before.starts_at !== startsAtIso) {
-    const admin = createAdminClient();
     await admin.from("notification_log").delete().eq("kind", "training_24h").eq("ref_id", id);
   }
 
@@ -143,8 +158,8 @@ export async function updateTraining(
 
 export async function deleteTraining(id: string): Promise<void> {
   await requireRole(["admin", "vorstand", "coach"]);
-  const supabase = await createServerSupabaseClient();
-  await supabase.from("trainings").delete().eq("id", id);
+  const admin = createAdminClient();
+  await admin.from("trainings").delete().eq("id", id);
 
   // Loescht ausschliesslich die einzelne Instanz -- Trainings aus einer
   // automatisch generierten Serie sind unabhaengige Zeilen ohne Bezug
@@ -155,9 +170,87 @@ export async function deleteTraining(id: string): Promise<void> {
 
 export async function deleteTrainingSeries(seriesId: string): Promise<void> {
   await requireRole(["admin", "vorstand", "coach"]);
-  const supabase = await createServerSupabaseClient();
-  await supabase.from("trainings").delete().eq("series_id", seriesId);
+  const admin = createAdminClient();
+  await admin.from("trainings").delete().eq("series_id", seriesId);
 
   revalidatePath("/admin/trainings");
   revalidatePath("/dashboard/trainings");
+}
+
+/**
+ * "Nachhaken": sendet eine Push an alle Mitglieder des Trainings-Teams,
+ * die noch NICHT abgestimmt haben (kein training_rsvps-Eintrag mit
+ * status, egal ob yes oder no), nie an die auslösende Person. Prueft
+ * Rolle, Zukunft des Termins, gesetztes und noch nicht erreichtes Minimum,
+ * sowie ein Rate-Limit von 3h ueber trainings.last_nudge_at selbst --
+ * nicht nur die UI blendet den Button aus.
+ */
+export async function nudgeTraining(trainingId: string): Promise<NudgeResult> {
+  const session = await requireRole(["admin", "vorstand", "coach"]);
+  const admin = createAdminClient();
+
+  const { data: training } = await admin
+    .from("trainings")
+    .select("title, starts_at, team, min_participants, last_nudge_at")
+    .eq("id", trainingId)
+    .maybeSingle();
+
+  if (!training) {
+    return { error: "Training nicht gefunden." };
+  }
+  if (new Date(training.starts_at).getTime() < Date.now()) {
+    return { error: "Der Termin liegt in der Vergangenheit." };
+  }
+  if (!training.min_participants) {
+    return { error: "Für dieses Training ist kein Minimum gesetzt." };
+  }
+  if (training.last_nudge_at) {
+    const elapsedMs = Date.now() - new Date(training.last_nudge_at).getTime();
+    if (elapsedMs < NUDGE_COOLDOWN_MS) {
+      return { error: "Es wurde erst vor kurzem nachgehakt, bitte später erneut." };
+    }
+  }
+
+  const [{ data: rsvps }, { data: teamMembers }] = await Promise.all([
+    admin.from("training_rsvps").select("member_id, status").eq("training_id", trainingId),
+    admin.from("members").select("id").eq("team", training.team),
+  ]);
+
+  const teamMemberIds = new Set((teamMembers ?? []).map((m) => m.id));
+  const yesCount = (rsvps ?? []).filter(
+    (r) => r.status === "yes" && teamMemberIds.has(r.member_id)
+  ).length;
+
+  if (yesCount >= training.min_participants) {
+    return { error: "Die Mindestanzahl wurde bereits erreicht." };
+  }
+
+  const votedIds = new Set(
+    (rsvps ?? [])
+      .filter((r) => r.status !== null && teamMemberIds.has(r.member_id))
+      .map((r) => r.member_id)
+  );
+  const recipientIds = Array.from(teamMemberIds).filter(
+    (id) => !votedIds.has(id) && id !== session.memberId
+  );
+
+  await admin
+    .from("trainings")
+    .update({ last_nudge_at: new Date().toISOString() })
+    .eq("id", trainingId);
+
+  revalidatePath(`/dashboard/trainings/${trainingId}`);
+
+  if (recipientIds.length === 0) {
+    return { message: "Alle haben schon abgestimmt." };
+  }
+
+  await sendPush({
+    memberIds: recipientIds,
+    title: `Wir brauchen dich: ${training.title}`,
+    body: `Bisher ${yesCount} von mindestens ${training.min_participants} Zusagen. Bist du dabei? ${formatPushDateTime(training.starts_at)}`,
+    path: `/dashboard/trainings/${trainingId}`,
+  });
+
+  return { message: `Erinnerung an ${recipientIds.length} Mitglieder gesendet` };
 }

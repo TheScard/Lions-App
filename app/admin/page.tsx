@@ -4,6 +4,7 @@ const LINKS = [
   { href: "/admin/matches", label: "Spiele verwalten" },
   { href: "/admin/events", label: "Events verwalten" },
   { href: "/admin/trainings", label: "Trainings verwalten" },
+  { href: "/admin/statistik", label: "Anwesenheits-Statistik" },
   { href: "/admin/board", label: "Vorstand verwalten" },
   { href: "/admin/members", label: "Mitglieder verwalten" },
 ] as const;

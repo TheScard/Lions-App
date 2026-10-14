@@ -7,7 +7,10 @@ import { sortAttendanceRows, type AttendanceRow } from "@/lib/attendance";
 import { TeamBadge } from "@/components/TeamBadge";
 import { AttendanceEditor } from "@/components/AttendanceEditor";
 import { RsvpSection } from "@/components/RsvpSection";
+import { RsvpCount } from "@/components/RsvpCount";
+import { NudgeButton } from "@/components/NudgeButton";
 import { saveTrainingAttendance, setRsvp } from "@/app/dashboard/trainings/actions";
+import { nudgeTraining } from "@/app/admin/trainings/actions";
 import type { RsvpStatus } from "@/types/database";
 
 export default async function TrainingDetailPage({ params }: { params: { id: string } }) {
@@ -98,9 +101,12 @@ export default async function TrainingDetailPage({ params }: { params: { id: str
       </div>
 
       <div className="rounded-xl border border-border bg-surface p-4">
-        <p className="text-xs uppercase tracking-wide text-text-muted">
-          Zusagen ({yesNames.length})
-        </p>
+        <RsvpCount
+          count={yesNames.length}
+          min={training.min_participants}
+          canSeeMin={canManage}
+          isFuture={!trainingStarted}
+        />
         {yesNames.length === 0 ? (
           <p className="mt-1 text-sm text-text-muted">Noch keine Zusagen.</p>
         ) : (
@@ -120,6 +126,20 @@ export default async function TrainingDetailPage({ params }: { params: { id: str
             noAction={setRsvp.bind(null, training.id, "no")}
           />
         </div>
+
+        {canManage &&
+          !trainingStarted &&
+          training.min_participants !== null &&
+          yesNames.length < training.min_participants && (
+            <div className="mt-3 border-t border-border pt-3">
+              <NudgeButton action={nudgeTraining.bind(null, training.id)} />
+              {training.last_nudge_at && (
+                <p className="mt-1 text-xs text-text-muted">
+                  Zuletzt nachgehakt: {formatDateTime(training.last_nudge_at)}
+                </p>
+              )}
+            </div>
+          )}
       </div>
 
       {canManage && trainingStarted && (
